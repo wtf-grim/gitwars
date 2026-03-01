@@ -121,27 +121,27 @@ function DesertGround() {
   return (
     <>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-        <planeGeometry args={[2000, 2000, 20, 20]} />
+        <planeGeometry args={[4000, 4000, 20, 20]} />
         <meshStandardMaterial color="#c8a96e" roughness={0.9} metalness={0} />
       </mesh>
       {/* Iran side — darker sand */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-600, 0.05, 0]}>
-        <planeGeometry args={[900, 2000]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-1200, 0.05, 0]}>
+        <planeGeometry args={[1800, 4000]} />
         <meshStandardMaterial color="#b8965a" roughness={1} transparent opacity={0.55} />
       </mesh>
       {/* Israel side — Med coast lighter */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[600, 0.05, 0]}>
-        <planeGeometry args={[900, 2000]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[1200, 0.05, 0]}>
+        <planeGeometry args={[1800, 4000]} />
         <meshStandardMaterial color="#d4b87a" roughness={1} transparent opacity={0.4} />
       </mesh>
       {/* No-man's-land centre — pale dry sand */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.08, 0]}>
-        <planeGeometry args={[400, 2000]} />
+        <planeGeometry args={[600, 4000]} />
         <meshStandardMaterial color="#dfc99a" roughness={1} transparent opacity={0.5} />
       </mesh>
       {/* Border line */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.2, 0]}>
-        <planeGeometry args={[6, 2000]} />
+        <planeGeometry args={[6, 4000]} />
         <meshStandardMaterial color="#ff2222" emissive="#ff0000" emissiveIntensity={0.5} />
       </mesh>
     </>
@@ -216,6 +216,8 @@ export interface BuildingProps {
 
 export function Building({ position, w, h, d, color, windowColor = "#ffcc88", roofColor, bodyMatRef }: BuildingProps) {
   const rc = roofColor ?? (windowColor === "#ffcc88" ? "#b09070" : "#c8c0b0");
+  const floorH = Math.max(4, h / 12); // approx floor height
+  const floors = Math.floor(h / floorH);
 
   return (
     <group position={[position[0], position[1] + h / 2, position[2]]}>
@@ -224,34 +226,55 @@ export function Building({ position, w, h, d, color, windowColor = "#ffcc88", ro
         <boxGeometry args={[w, h, d]} />
         <meshStandardMaterial ref={bodyMatRef} color={color} roughness={0.85} metalness={0.04} />
       </mesh>
-      {/* Base band */}
-      <mesh position={[0, -h / 2 + 1.5, 0]}>
-        <boxGeometry args={[w + 0.3, 3, d + 0.3]} />
+      {/* Base plinth — wider than body */}
+      <mesh position={[0, -h / 2 + 2, 0]}>
+        <boxGeometry args={[w + 2, 4, d + 2]} />
         <meshStandardMaterial color={rc} roughness={0.9} />
       </mesh>
+      {/* Horizontal floor ledges every ~4 floors */}
+      {Array.from({ length: Math.min(Math.floor(floors / 4), 8) }, (_, li) => {
+        const ly = -h / 2 + floorH * 4 * (li + 1);
+        return (
+          <mesh key={li} position={[0, ly, 0]}>
+            <boxGeometry args={[w + 1.0, 0.8, d + 1.0]} />
+            <meshStandardMaterial color={rc} roughness={0.9} />
+          </mesh>
+        );
+      })}
       {/* Roof parapet */}
-      <mesh position={[0, h / 2 + 0.9, 0]}>
-        <boxGeometry args={[w + 0.5, 1.8, d + 0.5]} />
+      <mesh position={[0, h / 2 + 1.2, 0]}>
+        <boxGeometry args={[w + 1, 2.4, d + 1]} />
         <meshStandardMaterial color={rc} roughness={0.9} />
       </mesh>
-      {/* Rooftop HVAC box */}
-      {h > 30 && (
-        <mesh position={[w * 0.22, h / 2 + 2.5, 0]}>
-          <boxGeometry args={[3.5, 3, 3.5]} />
-          <meshStandardMaterial color="#555" roughness={0.7} />
+      {/* Rooftop mechanical penthouse */}
+      {h > 60 && (
+        <mesh position={[w * 0.2, h / 2 + 5, 0]}>
+          <boxGeometry args={[w * 0.35, 8, d * 0.4]} />
+          <meshStandardMaterial color="#444" roughness={0.7} />
         </mesh>
       )}
-      {/* Windows — 3 emissive overlay planes (front / back / sides) */}
-      <mesh position={[0, 0, d / 2 + 0.07]}>
-        <planeGeometry args={[w - 1, h - 4]} />
-        <meshStandardMaterial color={windowColor} emissive={windowColor} emissiveIntensity={0.45} transparent opacity={0.22} alphaTest={0.01} />
+      {/* Rooftop water tank */}
+      {h > 80 && (
+        <mesh position={[-w * 0.25, h / 2 + 4, d * 0.2]}>
+          <cylinderGeometry args={[w * 0.08, w * 0.08, 6, 8]} />
+          <meshStandardMaterial color="#666" roughness={0.8} />
+        </mesh>
+      )}
+      {/* Windows — emissive overlay planes (front / back / sides) */}
+      <mesh position={[0, 0, d / 2 + 0.08]}>
+        <planeGeometry args={[w - 2, h - 6]} />
+        <meshStandardMaterial color={windowColor} emissive={windowColor} emissiveIntensity={0.5} transparent opacity={0.25} alphaTest={0.01} />
       </mesh>
-      <mesh position={[0, 0, -d / 2 - 0.07]} rotation={[0, Math.PI, 0]}>
-        <planeGeometry args={[w - 1, h - 4]} />
-        <meshStandardMaterial color={windowColor} emissive={windowColor} emissiveIntensity={0.35} transparent opacity={0.18} alphaTest={0.01} />
+      <mesh position={[0, 0, -d / 2 - 0.08]} rotation={[0, Math.PI, 0]}>
+        <planeGeometry args={[w - 2, h - 6]} />
+        <meshStandardMaterial color={windowColor} emissive={windowColor} emissiveIntensity={0.4} transparent opacity={0.20} alphaTest={0.01} />
       </mesh>
-      <mesh position={[w / 2 + 0.07, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
-        <planeGeometry args={[d - 1, h - 4]} />
+      <mesh position={[w / 2 + 0.08, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
+        <planeGeometry args={[d - 2, h - 6]} />
+        <meshStandardMaterial color={windowColor} emissive={windowColor} emissiveIntensity={0.4} transparent opacity={0.20} alphaTest={0.01} />
+      </mesh>
+      <mesh position={[-w / 2 - 0.08, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+        <planeGeometry args={[d - 2, h - 6]} />
         <meshStandardMaterial color={windowColor} emissive={windowColor} emissiveIntensity={0.35} transparent opacity={0.18} alphaTest={0.01} />
       </mesh>
     </group>
@@ -1481,7 +1504,7 @@ export default function WarMap({ side, walletAddress: _walletAddress, tier }: Pr
       {/* Canvas wrapper — receives CSS translate for screen shake */}
       <div ref={canvasWrapRef} style={{ position: "absolute", inset: 0 }}>
       <Canvas
-        camera={{ position: [0, 120, 300], fov: 65, near: 0.5, far: 3000 }}
+        camera={{ position: [0, 180, 500], fov: 70, near: 1, far: 6000 }}
         gl={{ antialias: false, powerPreference: "high-performance" }}
         dpr={Math.min(typeof window !== "undefined" ? window.devicePixelRatio : 1, 1.5)}
         style={{ background: "#c8d4e8" }}
@@ -1489,7 +1512,7 @@ export default function WarMap({ side, walletAddress: _walletAddress, tier }: Pr
         <ambientLight color="#ffe8c0" intensity={0.8} />
         <directionalLight color="#fff5e0" intensity={2.5} position={[500, 800, 200]} castShadow={false} />
         <hemisphereLight args={["#b0c8f0", "#c8a96e", 0.6]} />
-        <fog attach="fog" args={["#d4c4a0", 800, 1800]} />
+        <fog attach="fog" args={["#d4c4a0", 1200, 4500]} />
 
         {/* Sky dome */}
         <mesh>
