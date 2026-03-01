@@ -860,7 +860,7 @@ function DamageHoles({ position, w, h, d, stage, id }: DamageHolesProps) {
 
   // Generate hole positions — more holes per higher stage
   const holeCount = stage === 3 ? 18 : stage === 2 ? 10 : 5;
-  const holes: JSX.Element[] = [];
+  const holes: React.ReactElement[] = [];
 
   for (let i = 0; i < holeCount; i++) {
     // Random position on one of the 4 faces
