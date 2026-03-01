@@ -121,27 +121,27 @@ function DesertGround() {
   return (
     <>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-        <planeGeometry args={[4000, 4000, 20, 20]} />
+        <planeGeometry args={[8000, 8000, 24, 24]} />
         <meshStandardMaterial color="#c8a96e" roughness={0.9} metalness={0} />
       </mesh>
       {/* Iran side — darker sand */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-1200, 0.05, 0]}>
-        <planeGeometry args={[1800, 4000]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-2400, 0.05, 0]}>
+        <planeGeometry args={[3600, 8000]} />
         <meshStandardMaterial color="#b8965a" roughness={1} transparent opacity={0.55} />
       </mesh>
       {/* Israel side — Med coast lighter */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[1200, 0.05, 0]}>
-        <planeGeometry args={[1800, 4000]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[2400, 0.05, 0]}>
+        <planeGeometry args={[3600, 8000]} />
         <meshStandardMaterial color="#d4b87a" roughness={1} transparent opacity={0.4} />
       </mesh>
       {/* No-man's-land centre — pale dry sand */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.08, 0]}>
-        <planeGeometry args={[600, 4000]} />
+        <planeGeometry args={[1200, 8000]} />
         <meshStandardMaterial color="#dfc99a" roughness={1} transparent opacity={0.5} />
       </mesh>
       {/* Border line */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.2, 0]}>
-        <planeGeometry args={[6, 4000]} />
+        <planeGeometry args={[10, 8000]} />
         <meshStandardMaterial color="#ff2222" emissive="#ff0000" emissiveIntensity={0.5} />
       </mesh>
     </>
@@ -149,14 +149,14 @@ function DesertGround() {
 }
 
 function Mountains({ side }: { side: "iran" | "israel" }) {
-  const x = side === "iran" ? -900 : 900;
+  const x = side === "iran" ? -1800 : 1800;
   const color = side === "iran" ? "#8b7355" : "#9aab7a";
-  const peaks = [-400, -200, 0, 200, 400];
+  const peaks = [-800, -400, 0, 400, 800];
   return (
     <group>
       {peaks.map((z, i) => (
         <mesh key={i} position={[x, 0, z]}>
-          <coneGeometry args={[80 + (i % 3) * 30, 200 + (i % 2) * 100, 4]} />
+          <coneGeometry args={[160 + (i % 3) * 60, 400 + (i % 2) * 200, 4]} />
           <meshStandardMaterial color={color} roughness={1} />
         </mesh>
       ))}
@@ -555,18 +555,18 @@ function DuneMound({ position, sx = 30, sy = 5, sz = 15 }: {
 function DesertBuffer() {
   return (
     <group>
-      <DuneMound position={[-120, 0, -380]} sx={35} sy={6} sz={18} />
-      <DuneMound position={[80, 0, -300]} sx={28} sy={4} sz={14} />
-      <DuneMound position={[-60, 0, -180]} sx={40} sy={7} sz={20} />
-      <DuneMound position={[130, 0, -80]} sx={22} sy={5} sz={12} />
-      <DuneMound position={[-140, 0, 40]} sx={30} sy={5} sz={16} />
-      <DuneMound position={[50, 0, 150]} sx={45} sy={8} sz={22} />
-      <DuneMound position={[-90, 0, 250]} sx={25} sy={4} sz={13} />
-      <DuneMound position={[110, 0, 340]} sx={38} sy={6} sz={19} />
-      <DuneMound position={[-150, 0, 450]} sx={20} sy={3} sz={10} />
-      <DuneMound position={[60, 0, 500]} sx={32} sy={5} sz={16} />
-      <DuneMound position={[-30, 0, -450]} sx={24} sy={4} sz={12} />
-      <DuneMound position={[100, 0, -500]} sx={18} sy={3} sz={9} />
+      <DuneMound position={[-240, 0, -760]} sx={70} sy={12} sz={36} />
+      <DuneMound position={[160, 0, -600]} sx={56} sy={8} sz={28} />
+      <DuneMound position={[-120, 0, -360]} sx={80} sy={14} sz={40} />
+      <DuneMound position={[260, 0, -160]} sx={44} sy={10} sz={24} />
+      <DuneMound position={[-280, 0, 80]} sx={60} sy={10} sz={32} />
+      <DuneMound position={[100, 0, 300]} sx={90} sy={16} sz={44} />
+      <DuneMound position={[-180, 0, 500]} sx={50} sy={8} sz={26} />
+      <DuneMound position={[220, 0, 680]} sx={76} sy={12} sz={38} />
+      <DuneMound position={[-300, 0, 900]} sx={40} sy={6} sz={20} />
+      <DuneMound position={[120, 0, 1000]} sx={64} sy={10} sz={32} />
+      <DuneMound position={[-60, 0, -900]} sx={48} sy={8} sz={24} />
+      <DuneMound position={[200, 0, -1000]} sx={36} sy={6} sz={18} />
       <Rock position={[-100, 0, -420]} scale={1.2} />
       <Rock position={[140, 0, -260]} scale={0.8} />
       <Rock position={[-70, 0, -100]} scale={1.5} />
@@ -865,25 +865,28 @@ function Synagogue({ position }: { position: [number, number, number] }) {
 function IranRoads() {
   return (
     <group>
-      {/* Main east-west boulevard */}
-      <Road x1={-250} x2={-780} z={-320} w={10} axis="x" />
+      {/* Main east-west boulevards */}
+      <Road x1={-500} x2={-1560} z={-640} w={14} axis="x" />
+      <Road x1={-500} x2={-1560} z={-1280} w={12} axis="x" />
       {/* Secondary east-west */}
-      <Road x1={-260} x2={-760} z={-200} w={7} axis="x" />
-      <Road x1={-270} x2={-700} z={-420} w={7} axis="x" />
-      {/* Cross streets (north-south): x1/x2 = z range, z param = x position */}
-      <Road x1={-530} x2={150} z={-600} w={8} axis="z" />
-      <Road x1={-530} x2={150} z={-450} w={8} axis="z" />
-      <Road x1={-530} x2={150} z={-320} w={8} axis="z" />
-      {/* City B roads */}
-      <Road x1={-260} x2={-660} z={130} w={9} axis="x" />
-      <Road x1={-260} x2={-620} z={230} w={7} axis="x" />
-      <Road x1={-530} x2={50} z={-490} w={7} axis="z" />
+      <Road x1={-520} x2={-1520} z={-400} w={9} axis="x" />
+      <Road x1={-540} x2={-1400} z={-840} w={9} axis="x" />
+      {/* Cross streets (north-south) */}
+      <Road x1={-1060} x2={300} z={-1200} w={10} axis="z" />
+      <Road x1={-1060} x2={300} z={-900} w={10} axis="z" />
+      <Road x1={-1060} x2={300} z={-640} w={10} axis="z" />
+      <Road x1={-1060} x2={300} z={-980} w={8} axis="z" />
+      {/* City B north roads */}
+      <Road x1={-520} x2={-1320} z={260} w={12} axis="x" />
+      <Road x1={-520} x2={-1240} z={460} w={9} axis="x" />
+      <Road x1={-1060} x2={100} z={-980} w={9} axis="z" />
+      <Road x1={-500} x2={-1600} z={900} w={10} axis="x" />
       {/* Street lamps along main boulevard */}
-      {([-290, -350, -420, -490, -560, -630, -700] as number[]).map((x, i) => (
-        <StreetLamp key={i} position={[x, 0, -307]} />
+      {([-580, -700, -840, -980, -1120, -1260, -1400] as number[]).map((x, i) => (
+        <StreetLamp key={i} position={[x, 0, -614]} />
       ))}
-      {([-290, -350, -420, -490, -560, -630, -700] as number[]).map((x, i) => (
-        <StreetLamp key={i + 10} position={[x, 0, -333]} />
+      {([-580, -700, -840, -980, -1120, -1260, -1400] as number[]).map((x, i) => (
+        <StreetLamp key={i + 10} position={[x, 0, -666]} />
       ))}
     </group>
   );
@@ -894,25 +897,28 @@ function IranRoads() {
 function IsraelRoads() {
   return (
     <group>
-      {/* Main east-west boulevard */}
-      <Road x1={250} x2={780} z={-320} w={10} axis="x" />
+      {/* Main east-west boulevards */}
+      <Road x1={500} x2={1560} z={-640} w={14} axis="x" />
+      <Road x1={500} x2={1560} z={-1280} w={12} axis="x" />
       {/* Secondary east-west */}
-      <Road x1={260} x2={760} z={-200} w={7} axis="x" />
-      <Road x1={270} x2={700} z={-420} w={7} axis="x" />
+      <Road x1={520} x2={1520} z={-400} w={9} axis="x" />
+      <Road x1={540} x2={1400} z={-840} w={9} axis="x" />
       {/* Cross streets (north-south) */}
-      <Road x1={-530} x2={150} z={600} w={8} axis="z" />
-      <Road x1={-530} x2={150} z={450} w={8} axis="z" />
-      <Road x1={-530} x2={150} z={320} w={8} axis="z" />
-      {/* City B roads */}
-      <Road x1={260} x2={660} z={130} w={9} axis="x" />
-      <Road x1={260} x2={620} z={230} w={7} axis="x" />
-      <Road x1={-530} x2={50} z={490} w={7} axis="z" />
+      <Road x1={-300} x2={1060} z={1200} w={10} axis="z" />
+      <Road x1={-300} x2={1060} z={900} w={10} axis="z" />
+      <Road x1={-300} x2={1060} z={640} w={10} axis="z" />
+      <Road x1={-300} x2={1060} z={980} w={8} axis="z" />
+      {/* City B north roads */}
+      <Road x1={520} x2={1320} z={260} w={12} axis="x" />
+      <Road x1={520} x2={1240} z={460} w={9} axis="x" />
+      <Road x1={-100} x2={1060} z={980} w={9} axis="z" />
+      <Road x1={500} x2={1600} z={900} w={10} axis="x" />
       {/* Street lamps */}
-      {([290, 350, 420, 490, 560, 630, 700] as number[]).map((x, i) => (
-        <StreetLamp key={i} position={[x, 0, -307]} />
+      {([580, 700, 840, 980, 1120, 1260, 1400] as number[]).map((x, i) => (
+        <StreetLamp key={i} position={[x, 0, -614]} />
       ))}
-      {([290, 350, 420, 490, 560, 630, 700] as number[]).map((x, i) => (
-        <StreetLamp key={i + 10} position={[x, 0, -333]} />
+      {([580, 700, 840, 980, 1120, 1260, 1400] as number[]).map((x, i) => (
+        <StreetLamp key={i + 10} position={[x, 0, -666]} />
       ))}
     </group>
   );
@@ -922,24 +928,24 @@ function IsraelRoads() {
 // Large flags mounted on a concrete perimeter wall along each outer edge
 
 function IranBoundaryWall() {
-  // West boundary — X ≈ -940, flags face east (rotation Y = 0 = faces +Z by default,
+  // West boundary — X ≈ -1880, flags face east (rotation Y = 0 = faces +Z by default,
   // rotate Y = -PI/2 so flags face inward toward +X / center)
-  const zPositions = [-600, -300, 0, 300, 600];
+  const zPositions = [-1200, -600, 0, 600, 1200];
   return (
     <group>
-      {/* Concrete wall running Z = -800 to 800 */}
-      <mesh position={[-940, 8, 0]}>
-        <boxGeometry args={[4, 16, 1600]} />
+      {/* Concrete wall running Z = -1600 to 1600 */}
+      <mesh position={[-1880, 8, 0]}>
+        <boxGeometry args={[4, 16, 3200]} />
         <meshStandardMaterial color="#c8bca8" roughness={0.95} />
       </mesh>
       {/* Wall top ridge */}
-      <mesh position={[-940, 16.5, 0]}>
-        <boxGeometry args={[5, 1.5, 1600]} />
+      <mesh position={[-1880, 16.5, 0]}>
+        <boxGeometry args={[5, 1.5, 3200]} />
         <meshStandardMaterial color="#b8ac98" roughness={1} />
       </mesh>
       {/* Iranian flags evenly spaced, facing inward (+X direction) */}
       {zPositions.map((z, i) => (
-        <group key={i} position={[-938, 0, z]} rotation={[0, -Math.PI / 2, 0]}>
+        <group key={i} position={[-1878, 0, z]} rotation={[0, -Math.PI / 2, 0]}>
           {/* Pole */}
           <mesh position={[0, 40, 0]}>
             <cylinderGeometry args={[0.8, 1.0, 80, 8]} />
@@ -976,22 +982,22 @@ function IranBoundaryWall() {
 }
 
 function IsraelBoundaryWall() {
-  // East boundary — X ≈ +940, flags face west (inward toward -X)
-  const zPositions = [-600, -300, 0, 300, 600];
+  // East boundary — X ≈ +1880, flags face west (inward toward -X)
+  const zPositions = [-1200, -600, 0, 600, 1200];
   return (
     <group>
       {/* Concrete wall */}
-      <mesh position={[940, 8, 0]}>
-        <boxGeometry args={[4, 16, 1600]} />
+      <mesh position={[1880, 8, 0]}>
+        <boxGeometry args={[4, 16, 3200]} />
         <meshStandardMaterial color="#d8d0be" roughness={0.95} />
       </mesh>
-      <mesh position={[940, 16.5, 0]}>
-        <boxGeometry args={[5, 1.5, 1600]} />
+      <mesh position={[1880, 16.5, 0]}>
+        <boxGeometry args={[5, 1.5, 3200]} />
         <meshStandardMaterial color="#c8c0ae" roughness={1} />
       </mesh>
       {/* Israeli flags facing inward (-X direction) */}
       {zPositions.map((z, i) => (
-        <group key={i} position={[938, 0, z]} rotation={[0, Math.PI / 2, 0]}>
+        <group key={i} position={[1878, 0, z]} rotation={[0, Math.PI / 2, 0]}>
           {/* Pole */}
           <mesh position={[0, 40, 0]}>
             <cylinderGeometry args={[0.8, 1.0, 80, 8]} />
@@ -1026,57 +1032,68 @@ function IranCities() {
   return (
     <group>
       {/* ════ PAVEMENT ════ */}
-      <Pavement position={[-575, 0, -350]} w={650} d={700} />
-      <Pavement position={[-575, 0, 350]} w={650} d={700} />
+      <Pavement position={[-1150, 0, -700]} w={1300} d={1400} />
+      <Pavement position={[-1150, 0, 700]} w={1300} d={1400} />
       {/* NOTE: Buildings are rendered by IranDamageableBuildings component */}
 
       {/* ════ LANDMARKS ════ */}
-      <GrandMosque position={[-522, 0, -620]} />
-      <Mosque position={[-358, 0, -242]} />
-      <Mosque position={[-692, 0, -260]} />
-      <Mosque position={[-512, 0, 295]} />
-      <Mosque position={[-272, 0, 305]} />
-      <Mosque position={[-638, 0, 485]} />
-      <Mosque position={[-780, 0, -120]} />
-      <Mosque position={[-840, 0, 155]} />
+      <GrandMosque position={[-1044, 0, -1240]} />
+      <GrandMosque position={[-1400, 0, 400]} />
+      <Mosque position={[-716, 0, -484]} />
+      <Mosque position={[-1384, 0, -520]} />
+      <Mosque position={[-1024, 0, 590]} />
+      <Mosque position={[-544, 0, 610]} />
+      <Mosque position={[-1276, 0, 970]} />
+      <Mosque position={[-1560, 0, -240]} />
+      <Mosque position={[-1680, 0, 310]} />
+      <Mosque position={[-716, 0, -240]} />
+      <Mosque position={[-900, 0, 800]} />
+      <Mosque position={[-500, 0, 1100]} />
 
       {/* ════ COFFEE SHOPS ════ */}
-      <CoffeeShop position={[-412, 0, -198]} color="#c8904a" />
-      <CoffeeShop position={[-582, 0, -258]} color="#b07840" />
-      <CoffeeShop position={[-278, 0, -268]} color="#c07838" />
-      <CoffeeShop position={[-358, 0, 305]} color="#c89050" />
-      <CoffeeShop position={[-625, 0, 80]} color="#b07840" />
-      <CoffeeShop position={[-720, 0, -48]} color="#c07838" />
-      <CoffeeShop position={[-455, 0, 578]} color="#b87838" />
+      <CoffeeShop position={[-824, 0, -396]} color="#c8904a" />
+      <CoffeeShop position={[-1164, 0, -516]} color="#b07840" />
+      <CoffeeShop position={[-556, 0, -536]} color="#c07838" />
+      <CoffeeShop position={[-716, 0, 610]} color="#c89050" />
+      <CoffeeShop position={[-1250, 0, 160]} color="#b07840" />
+      <CoffeeShop position={[-1440, 0, -96]} color="#c07838" />
+      <CoffeeShop position={[-910, 0, 1156]} color="#b87838" />
+      <CoffeeShop position={[-600, 0, 900]} color="#c07830" />
 
       {/* ════ PARKS ════ */}
-      <Park position={[-658, 0, -238]} large={true} />
-      <Park position={[-308, 0, -482]} />
-      <Park position={[-755, 0, -345]} />
-      <Park position={[-288, 0, 205]} />
-      <Park position={[-628, 0, 295]} large={true} />
-      <Park position={[-780, 0, 545]} large={true} />
-      <Park position={[-340, 0, 620]} />
+      <Park position={[-1316, 0, -476]} large={true} />
+      <Park position={[-616, 0, -964]} />
+      <Park position={[-1510, 0, -690]} />
+      <Park position={[-576, 0, 410]} />
+      <Park position={[-1256, 0, 590]} large={true} />
+      <Park position={[-1560, 0, 1090]} large={true} />
+      <Park position={[-680, 0, 1240]} />
+      <Park position={[-900, 0, -700]} large={true} />
+      <Park position={[-1100, 0, 1200]} />
 
       {/* ════ PALMS & TREES ════ */}
-      <PalmCluster position={[-442, 0, -172]} />
-      <PalmCluster position={[-682, 0, -392]} />
-      <PalmCluster position={[-298, 0, -302]} />
-      <PalmCluster position={[-758, 0, -188]} />
-      <PalmCluster position={[-572, 0, 122]} />
-      <PalmCluster position={[-275, 0, 275]} />
-      <PalmCluster position={[-532, 0, 492]} />
-      <PalmCluster position={[-362, 0, 432]} />
-      <PalmCluster position={[-258, 0, 468]} />
-      <PalmCluster position={[-840, 0, 222]} />
-      <PalmCluster position={[-268, 0, 588]} />
-      <PalmCluster position={[-700, 0, 630]} />
+      <PalmCluster position={[-884, 0, -344]} />
+      <PalmCluster position={[-1364, 0, -784]} />
+      <PalmCluster position={[-596, 0, -604]} />
+      <PalmCluster position={[-1516, 0, -376]} />
+      <PalmCluster position={[-1144, 0, 244]} />
+      <PalmCluster position={[-550, 0, 550]} />
+      <PalmCluster position={[-1064, 0, 984]} />
+      <PalmCluster position={[-724, 0, 864]} />
+      <PalmCluster position={[-516, 0, 936]} />
+      <PalmCluster position={[-1680, 0, 444]} />
+      <PalmCluster position={[-536, 0, 1176]} />
+      <PalmCluster position={[-1400, 0, 1260]} />
+      <PalmCluster position={[-750, 0, -1000]} />
+      <PalmCluster position={[-1200, 0, -900]} />
 
       {/* ════ FARMS ════ */}
-      <Farm position={[-728, 0, 155]} side="iran" />
-      <Farm position={[-758, 0, 442]} side="iran" />
-      <Farm position={[-858, 0, 610]} side="iran" />
-      <Farm position={[-860, 0, -520]} side="iran" />
+      <Farm position={[-1456, 0, 310]} side="iran" />
+      <Farm position={[-1516, 0, 884]} side="iran" />
+      <Farm position={[-1716, 0, 1220]} side="iran" />
+      <Farm position={[-1720, 0, -1040]} side="iran" />
+      <Farm position={[-600, 0, 1400]} side="iran" />
+      <Farm position={[-1300, 0, 1500]} side="iran" />
     </group>
   );
 }
@@ -1087,57 +1104,68 @@ function IsraelCities() {
   return (
     <group>
       {/* ════ FULL CITY PAVEMENT — entire Israel territory ════ */}
-      <Pavement position={[575, 0, -350]} w={650} d={700} />
-      <Pavement position={[575, 0, 350]} w={650} d={700} />
+      <Pavement position={[1150, 0, -700]} w={1300} d={1400} />
+      <Pavement position={[1150, 0, 700]} w={1300} d={1400} />
       {/* NOTE: Buildings are rendered by IsraelDamageableBuildings component */}
 
       {/* ════ LANDMARKS ════ */}
-      <GrandSynagogue position={[522, 0, -620]} />
-      <Synagogue position={[358, 0, -242]} />
-      <Synagogue position={[692, 0, -260]} />
-      <Synagogue position={[512, 0, 295]} />
-      <Synagogue position={[272, 0, 305]} />
-      <Synagogue position={[638, 0, 485]} />
-      <Synagogue position={[780, 0, -120]} />
-      <Synagogue position={[840, 0, 155]} />
+      <GrandSynagogue position={[1044, 0, -1240]} />
+      <GrandSynagogue position={[1400, 0, 400]} />
+      <Synagogue position={[716, 0, -484]} />
+      <Synagogue position={[1384, 0, -520]} />
+      <Synagogue position={[1024, 0, 590]} />
+      <Synagogue position={[544, 0, 610]} />
+      <Synagogue position={[1276, 0, 970]} />
+      <Synagogue position={[1560, 0, -240]} />
+      <Synagogue position={[1680, 0, 310]} />
+      <Synagogue position={[716, 0, -240]} />
+      <Synagogue position={[900, 0, 800]} />
+      <Synagogue position={[500, 0, 1100]} />
 
       {/* ════ COFFEE SHOPS ════ */}
-      <CoffeeShop position={[412, 0, -198]} color="#d4aa70" />
-      <CoffeeShop position={[582, 0, -258]} color="#c09858" />
-      <CoffeeShop position={[278, 0, -268]} color="#c8a860" />
-      <CoffeeShop position={[358, 0, 305]} color="#d4aa70" />
-      <CoffeeShop position={[625, 0, 80]} color="#c09858" />
-      <CoffeeShop position={[720, 0, -48]} color="#c8a860" />
-      <CoffeeShop position={[455, 0, 578]} color="#d0a858" />
+      <CoffeeShop position={[824, 0, -396]} color="#d4aa70" />
+      <CoffeeShop position={[1164, 0, -516]} color="#c09858" />
+      <CoffeeShop position={[556, 0, -536]} color="#c8a860" />
+      <CoffeeShop position={[716, 0, 610]} color="#d4aa70" />
+      <CoffeeShop position={[1250, 0, 160]} color="#c09858" />
+      <CoffeeShop position={[1440, 0, -96]} color="#c8a860" />
+      <CoffeeShop position={[910, 0, 1156]} color="#d0a858" />
+      <CoffeeShop position={[600, 0, 900]} color="#c8a060" />
 
       {/* ════ PARKS ════ */}
-      <Park position={[658, 0, -238]} large={true} />
-      <Park position={[308, 0, -482]} />
-      <Park position={[755, 0, -345]} />
-      <Park position={[288, 0, 205]} />
-      <Park position={[628, 0, 295]} large={true} />
-      <Park position={[780, 0, 545]} large={true} />
-      <Park position={[340, 0, 620]} />
+      <Park position={[1316, 0, -476]} large={true} />
+      <Park position={[616, 0, -964]} />
+      <Park position={[1510, 0, -690]} />
+      <Park position={[576, 0, 410]} />
+      <Park position={[1256, 0, 590]} large={true} />
+      <Park position={[1560, 0, 1090]} large={true} />
+      <Park position={[680, 0, 1240]} />
+      <Park position={[900, 0, -700]} large={true} />
+      <Park position={[1100, 0, 1200]} />
 
       {/* ════ PALMS & TREES ════ */}
-      <PalmCluster position={[442, 0, -172]} />
-      <PalmCluster position={[682, 0, -392]} />
-      <PalmCluster position={[298, 0, -302]} />
-      <PalmCluster position={[758, 0, -188]} />
-      <PalmCluster position={[572, 0, 122]} />
-      <PalmCluster position={[275, 0, 275]} />
-      <PalmCluster position={[532, 0, 492]} />
-      <PalmCluster position={[362, 0, 432]} />
-      <PalmCluster position={[258, 0, 468]} />
-      <PalmCluster position={[840, 0, 222]} />
-      <PalmCluster position={[268, 0, 588]} />
-      <PalmCluster position={[700, 0, 630]} />
+      <PalmCluster position={[884, 0, -344]} />
+      <PalmCluster position={[1364, 0, -784]} />
+      <PalmCluster position={[596, 0, -604]} />
+      <PalmCluster position={[1516, 0, -376]} />
+      <PalmCluster position={[1144, 0, 244]} />
+      <PalmCluster position={[550, 0, 550]} />
+      <PalmCluster position={[1064, 0, 984]} />
+      <PalmCluster position={[724, 0, 864]} />
+      <PalmCluster position={[516, 0, 936]} />
+      <PalmCluster position={[1680, 0, 444]} />
+      <PalmCluster position={[536, 0, 1176]} />
+      <PalmCluster position={[1400, 0, 1260]} />
+      <PalmCluster position={[750, 0, -1000]} />
+      <PalmCluster position={[1200, 0, -900]} />
 
       {/* ════ FARMS ════ */}
-      <Farm position={[728, 0, 155]} side="israel" />
-      <Farm position={[758, 0, 442]} side="israel" />
-      <Farm position={[858, 0, 610]} side="israel" />
-      <Farm position={[860, 0, -520]} side="israel" />
+      <Farm position={[1456, 0, 310]} side="israel" />
+      <Farm position={[1516, 0, 884]} side="israel" />
+      <Farm position={[1716, 0, 1220]} side="israel" />
+      <Farm position={[1720, 0, -1040]} side="israel" />
+      <Farm position={[600, 0, 1400]} side="israel" />
+      <Farm position={[1300, 0, 1500]} side="israel" />
     </group>
   );
 }
@@ -1504,20 +1532,26 @@ export default function WarMap({ side, walletAddress: _walletAddress, tier }: Pr
       {/* Canvas wrapper — receives CSS translate for screen shake */}
       <div ref={canvasWrapRef} style={{ position: "absolute", inset: 0 }}>
       <Canvas
-        camera={{ position: [0, 180, 500], fov: 70, near: 1, far: 6000 }}
+        camera={{ position: [0, 800, 2000], fov: 70, near: 1, far: 12000 }}
         gl={{ antialias: false, powerPreference: "high-performance" }}
         dpr={Math.min(typeof window !== "undefined" ? window.devicePixelRatio : 1, 1.5)}
         style={{ background: "#c8d4e8" }}
       >
         <ambientLight color="#ffe8c0" intensity={0.8} />
-        <directionalLight color="#fff5e0" intensity={2.5} position={[500, 800, 200]} castShadow={false} />
+        <directionalLight color="#fff5e0" intensity={2.5} position={[1000, 1600, 400]} castShadow={false} />
         <hemisphereLight args={["#b0c8f0", "#c8a96e", 0.6]} />
-        <fog attach="fog" args={["#d4c4a0", 1200, 4500]} />
+        <fog attach="fog" args={["#d4c4a0", 2400, 9000]} />
 
-        {/* Sky dome */}
+        {/* Sky dome — covers full map radius */}
         <mesh>
-          <sphereGeometry args={[1600, 16, 8]} />
+          <sphereGeometry args={[3800, 16, 8]} />
           <meshBasicMaterial color="#87b4d8" side={THREE.BackSide} />
+        </mesh>
+
+        {/* Visible dome boundary — glowing edge sphere so players see the limit */}
+        <mesh>
+          <sphereGeometry args={[3780, 32, 16]} />
+          <meshBasicMaterial color="#88ccff" side={THREE.FrontSide} transparent opacity={0.04} />
         </mesh>
 
         <DesertGround />
@@ -1542,8 +1576,8 @@ export default function WarMap({ side, walletAddress: _walletAddress, tier }: Pr
         <IsraelBoundaryWall />
 
         {/* Small in-city flags near capitals */}
-        <IranFlag position={[-600, 0, -300]} />
-        <IsraelFlag position={[600, 0, -300]} />
+        <IranFlag position={[-1200, 0, -600]} />
+        <IsraelFlag position={[1200, 0, -600]} />
 
         {/* Plane — hidden while crashed, remounted on respawn */}
         {!crashed && (

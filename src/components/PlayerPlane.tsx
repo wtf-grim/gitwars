@@ -228,9 +228,9 @@ const MOUSE_YAW   = 0.0018;
 const MOUSE_PITCH = 0.0018;
 const MAX_BANK    = 0.9;
 const BANK_SPEED  = 6.0;
-const MAP_BOUND   = 1900;   // expanded to match 2x building spread
-const MIN_HEIGHT  = 8;
-const MAX_HEIGHT  = 900;
+const MAP_BOUND   = 3800;   // expanded to match 5x building spread (2x positions)
+const MIN_HEIGHT  = 12;
+const MAX_HEIGHT  = 2000;
 const CAM_SMOOTH  = 6;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -344,10 +344,10 @@ export default function PlayerPlane({ side, tier, groupRef, fireQueueRef }: Prop
     }
   });
 
-  const spawnX = side === "iran" ? -600 : 600;
+  const spawnX = side === "iran" ? -1200 : 1200;
 
   return (
-    <group ref={groupRef as React.RefObject<THREE.Group>} position={[spawnX, 120, 0]}>
+    <group ref={groupRef as React.RefObject<THREE.Group>} position={[spawnX, 600, 0]}>
       <AirplaneMesh side={side} tier={tier} lightRefs={lightRefs} />
       <pointLight
         color={side === "iran" ? "#66ff44" : "#4488ff"}
