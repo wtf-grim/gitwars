@@ -218,19 +218,19 @@ function AirplaneMesh({ side, tier, lightRefs }: AirplaneMeshProps) {
 }
 
 // ─── Flight constants (scale with tier) ───────────────────────────
-const TIER_SPEED:  Record<PlaneTier, number> = { 1: 80, 2: 100, 3: 130, 4: 160, 5: 110 };
-const TIER_BOOST:  Record<PlaneTier, number> = { 1: 180, 2: 220, 3: 270, 4: 340, 5: 240 };
+const TIER_SPEED:  Record<PlaneTier, number> = { 1: 140, 2: 180, 3: 230, 4: 290, 5: 200 };
+const TIER_BOOST:  Record<PlaneTier, number> = { 1: 320, 2: 400, 3: 500, 4: 620, 5: 440 };
 // Camera distance also scales (bomber needs more room)
-const TIER_CAM_BACK: Record<PlaneTier, number> = { 1: 50, 2: 55, 3: 60, 4: 65, 5: 95 };
-const TIER_CAM_UP:   Record<PlaneTier, number> = { 1: 14, 2: 16, 3: 18, 4: 20, 5: 28 };
+const TIER_CAM_BACK: Record<PlaneTier, number> = { 1: 60, 2: 68, 3: 76, 4: 85, 5: 120 };
+const TIER_CAM_UP:   Record<PlaneTier, number> = { 1: 18, 2: 22, 3: 26, 4: 30, 5: 40 };
 
 const MOUSE_YAW   = 0.0018;
 const MOUSE_PITCH = 0.0018;
 const MAX_BANK    = 0.9;
 const BANK_SPEED  = 6.0;
-const MAP_BOUND   = 950;
-const MIN_HEIGHT  = 5;
-const MAX_HEIGHT  = 600;
+const MAP_BOUND   = 1900;   // expanded to match 2x building spread
+const MIN_HEIGHT  = 8;
+const MAX_HEIGHT  = 900;
 const CAM_SMOOTH  = 6;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -344,10 +344,10 @@ export default function PlayerPlane({ side, tier, groupRef, fireQueueRef }: Prop
     }
   });
 
-  const spawnX = side === "iran" ? -400 : 400;
+  const spawnX = side === "iran" ? -600 : 600;
 
   return (
-    <group ref={groupRef as React.RefObject<THREE.Group>} position={[spawnX, 60, 0]}>
+    <group ref={groupRef as React.RefObject<THREE.Group>} position={[spawnX, 120, 0]}>
       <AirplaneMesh side={side} tier={tier} lightRefs={lightRefs} />
       <pointLight
         color={side === "iran" ? "#66ff44" : "#4488ff"}

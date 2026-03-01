@@ -450,8 +450,12 @@ const BUILDING_REGISTRY: BuildingRecord[] = ALL_BUILDINGS.map(def => ({
 
 // ─── Damage State ─────────────────────────────────────────────────
 
+// Zone-based HP: top/mid/base each have independent structural health
 interface BuildingDamageState {
-  hp: number;
+  hp: number;       // overall 0-100
+  hpTop: number;    // top third — 0-100
+  hpMid: number;    // middle third — 0-100
+  hpBase: number;   // bottom third — 0-100
   stage: 0 | 1 | 2 | 3;
   destroyed: boolean;
 }
@@ -459,7 +463,7 @@ interface BuildingDamageState {
 // Module-level damage map — keyed by building id
 export const damageMap = new Map<number, BuildingDamageState>();
 ALL_BUILDINGS.forEach(b => {
-  damageMap.set(b.id, { hp: 100, stage: 0, destroyed: false });
+  damageMap.set(b.id, { hp: 100, hpTop: 100, hpMid: 100, hpBase: 100, stage: 0, destroyed: false });
 });
 
 // ─── Building visual refs (registered by DamageableBuilding on mount) ────────
@@ -563,21 +567,38 @@ function zeroSlot(mesh: THREE.InstancedMesh | null, slot: number) {
 
 // ─── applyDamage ──────────────────────────────────────────────────
 
+// hitY = world Y where bullet struck (0 = ground level, rec.h = top)
 function applyDamage(
   rec: BuildingRecord,
   dmg: number,
+  hitY: number,
   score: React.MutableRefObject<ScoreState>,
   onScoreChange: (s: ScoreState) => void
 ) {
   const entry = damageMap.get(rec.id);
   if (!entry || entry.destroyed) return;
 
-  entry.hp -= dmg;
+  // Determine which vertical zone was hit
+  const relY = Math.max(0, Math.min(hitY, rec.h)); // clamp to building height
+  const zoneT = relY / rec.h; // 0=base, 1=top
+  let zone: "top" | "mid" | "base";
+  if      (zoneT > 0.66) zone = "top";
+  else if (zoneT > 0.33) zone = "mid";
+  else                   zone = "base";
+
+  // Apply damage to the struck zone
+  if      (zone === "top")  entry.hpTop  = Math.max(0, entry.hpTop  - dmg);
+  else if (zone === "mid")  entry.hpMid  = Math.max(0, entry.hpMid  - dmg);
+  else                      entry.hpBase = Math.max(0, entry.hpBase - dmg);
+
+  // Overall HP = weighted average — base damage is more structurally severe
+  entry.hp = entry.hpTop * 0.25 + entry.hpMid * 0.35 + entry.hpBase * 0.40;
 
   const prevStage = entry.stage;
 
-  if (entry.hp <= 0) {
-    entry.hp = 0;
+  // Cascade: if base collapses the whole building falls
+  if (entry.hpBase <= 0 || entry.hp <= 5) {
+    entry.hp = 0; entry.hpTop = 0; entry.hpMid = 0; entry.hpBase = 0;
     entry.stage = 3;
     entry.destroyed = true;
     if (rec.side === "iran") {
@@ -588,24 +609,33 @@ function applyDamage(
       score.current.israelPoints += rec.pointValue;
     }
     onScoreChange({ ...score.current });
-  } else if (entry.hp <= 33) {
+  } else if (entry.hpMid <= 20 || entry.hp <= 33) {
     entry.stage = 2;
   } else if (entry.hp <= 66) {
     entry.stage = 1;
   }
 
-  // Push visual changes imperatively — no per-frame polling needed
-  if (entry.stage !== prevStage) {
-    _applyBuildingVisuals(rec.id, entry.stage, rec.color, rec.w, rec.h, rec.d);
-  }
+  // Always trigger zonal debris at the hit point, even mid-stage
+  _applyBuildingVisuals(rec.id, entry.stage, prevStage, rec.color, rec.w, rec.h, rec.d, zone, zoneT);
 }
 
-function _applyBuildingVisuals(id: number, stage: 0|1|2|3, color: string, w: number, h: number, d: number) {
+function _applyBuildingVisuals(
+  id: number,
+  stage: 0|1|2|3,
+  prevStage: 0|1|2|3,
+  color: string,
+  w: number,
+  h: number,
+  d: number,
+  zone: "top"|"mid"|"base",
+  zoneT: number
+) {
   const refs = buildingRefs.get(id);
   if (!refs) return;
-  refs.setStage(stage);
+  if (stage !== prevStage) refs.setStage(stage);
+  // Always fire debris at hit zone — even without stage change (every bullet makes bricks fly)
   const trigger = debrisTriggers.get(id);
-  if (trigger) trigger(stage, w, h, d);
+  if (trigger) trigger(stage, w, h, d, zone, zoneT);
   if (stage >= 2) refs.setSmoke(true);
 }
 
@@ -622,7 +652,8 @@ function applyBombBlast(
     const dist = center.distanceTo(bCenter);
     if (dist < bomb.blastRadius) {
       const scaled = bomb.damage * (1 - dist / bomb.blastRadius);
-      applyDamage(rec, scaled, score, onScoreChange);
+      // Bomb hits at ground level — collapses base
+      applyDamage(rec, scaled, 2, score, onScoreChange);
     }
   }
 }
@@ -692,8 +723,10 @@ function useCombatSystem(
   const _pBox         = useRef(new THREE.Box3());
   const _pSize        = new THREE.Vector3(0.6, 0.6, 2.5);
   const _planeBox     = useRef(new THREE.Box3());
-  const _planeSize    = new THREE.Vector3(12, 4, 12);
+  // Tight hitbox — just the fuselage core. Wings clip but don't crash.
+  const _planeSize    = new THREE.Vector3(6, 3, 6);
   const crashed       = useRef(false);
+  const prevPlanePos  = useRef(new THREE.Vector3());
 
   void side; // side used for future PvP targeting, available in scope
 
@@ -701,7 +734,6 @@ function useCombatSystem(
     const dt = Math.min(delta, 0.05);
     const plane = planeRef.current;
     if (!plane) {
-      // Plane is unmounted (respawning) — reset crash lock for the new plane
       crashed.current = false;
       return;
     }
@@ -709,17 +741,45 @@ function useCombatSystem(
     const bulletMesh = bulletMeshRef.current;
     const bombMesh   = bombMeshRef.current;
 
-    // ── Plane-building crash detection ──────────────────────────
+    // ── Plane-building collision: slide/deflect, only crash on hard direct hit ──
     if (!crashed.current) {
       _planeBox.current.setFromCenterAndSize(plane.position, _planeSize);
       for (const id of _nearbyBuildingIds(plane.position)) {
         const rec = _registryById.get(id);
-        if (rec && !damageMap.get(rec.id)?.destroyed && rec.box.intersectsBox(_planeBox.current)) {
+        const entry = damageMap.get(rec?.id ?? -1);
+        if (!rec || entry?.destroyed) continue;
+        if (!rec.box.intersectsBox(_planeBox.current)) continue;
+
+        // Compute overlap depth on each axis to find smallest push axis
+        const bMin = rec.box.min, bMax = rec.box.max;
+        const pp = plane.position;
+        const overlapX = Math.min(pp.x - bMin.x, bMax.x - pp.x);
+        const overlapY = Math.min(pp.y - bMin.y, bMax.y - pp.y);
+        const overlapZ = Math.min(pp.z - bMin.z, bMax.z - pp.z);
+
+        // Penetration speed — how fast were we moving into the building last frame
+        const moveDir = pp.clone().sub(prevPlanePos.current);
+        const speed = moveDir.length() / dt;
+
+        if (speed > 220) {
+          // High-speed direct impact → crash
           crashed.current = true;
           onCrash();
           break;
+        } else {
+          // Soft collision → push plane out on smallest overlap axis
+          const minOverlap = Math.min(Math.abs(overlapX), Math.abs(overlapY), Math.abs(overlapZ));
+          if (minOverlap === Math.abs(overlapY)) {
+            plane.position.y += pp.y < (bMin.y + bMax.y) / 2 ? -(overlapY + 4) : (overlapY + 4);
+          } else if (minOverlap === Math.abs(overlapX)) {
+            plane.position.x += pp.x < (bMin.x + bMax.x) / 2 ? -(overlapX + 4) : (overlapX + 4);
+          } else {
+            plane.position.z += pp.z < (bMin.z + bMax.z) / 2 ? -(overlapZ + 4) : (overlapZ + 4);
+          }
+          break;
         }
       }
+      prevPlanePos.current.copy(plane.position);
     }
 
     // ── Fire ────────────────────────────────────────────────────
@@ -772,7 +832,9 @@ function useCombatSystem(
         for (const id of _nearbyBuildingIds(p.position)) {
           const rec = _registryById.get(id);
           if (rec && rec.box.intersectsBox(_pBox.current)) {
-            applyDamage(rec, p.damage, score, onScoreChange);
+            // Hit Y relative to building base — used for zonal physics crumble
+            const hitY = p.position.y - rec.position[1];
+            applyDamage(rec, p.damage, hitY, score, onScoreChange);
             p.active = false;
             bulletSlots.current[p.instanceSlot] = false;
             zeroSlot(bulletMesh, p.instanceSlot);
@@ -875,7 +937,7 @@ export function DamageableBuilding({ def }: DamageableBuildingProps) {
   const [showSmoke, setShowSmoke]   = useState(false);
   const [stage, setStage]           = useState<0|1|2|3>(0);
 
-  const debrisTriggerRef = useRef<(stage: number, w: number, h: number, d: number) => void>(null!);
+  const debrisTriggerRef = useRef<(stage: number, w: number, h: number, d: number, zone: "top"|"mid"|"base", zoneT: number) => void>(null!);
 
   useEffect(() => {
     buildingRefs.set(def.id, {
@@ -884,8 +946,8 @@ export function DamageableBuilding({ def }: DamageableBuildingProps) {
       setSmoke: setShowSmoke,
       setStage: setStage as (s: 0|1|2|3) => void,
     });
-    debrisTriggers.set(def.id, (s, w, h, d) => {
-      if (debrisTriggerRef.current) debrisTriggerRef.current(s, w, h, d);
+    debrisTriggers.set(def.id, (s, w, h, d, zone, zoneT) => {
+      if (debrisTriggerRef.current) debrisTriggerRef.current(s, w, h, d, zone, zoneT);
     });
     return () => {
       buildingRefs.delete(def.id);
@@ -963,44 +1025,45 @@ interface DamageHolesProps {
   id: number;
 }
 
-function DamageHoles({ position, w, h, d, stage, id }: DamageHolesProps) {
-  if (stage === 0) return null;
-
-  const rand = seededRand(id * 7919);
-  const px = position[0], py = position[1] + h / 2, pz = position[2];
-
-  // Generate hole positions — more holes per higher stage
-  const holeCount = stage === 3 ? 18 : stage === 2 ? 10 : 5;
+// Helper: punch a hole at a specific Y range on the building facade
+function makeHoles(
+  rand: () => number,
+  px: number, pz: number,
+  w: number, h: number, d: number,
+  baseY: number, topY: number,   // Y range within which holes can appear
+  count: number,
+  stage: number,
+  keyPrefix: string
+): React.ReactElement[] {
   const holes: React.ReactElement[] = [];
+  const rangeH = topY - baseY;
+  if (rangeH < 2) return holes;
 
-  for (let i = 0; i < holeCount; i++) {
-    // Random position on one of the 4 faces
+  for (let i = 0; i < count; i++) {
     const face = Math.floor(rand() * 4);
-    const holeW = 1.5 + rand() * (stage === 3 ? 4.5 : 2.5);
-    const holeH = 1.5 + rand() * (stage === 3 ? 5.0 : 3.0);
+    const holeW = 2 + rand() * (stage === 3 ? 8 : 5);
+    const holeH = 2 + rand() * (stage === 3 ? 10 : 6);
 
-    let hx = 0, hy = 0, hz = 0;
-    if (face === 0) {      // front
-      hx = (rand() - 0.5) * (w - holeW - 1);
-      hy = py + (rand() - 0.5) * (h - holeH - 2);
+    // Vertical position within the zone
+    const hy = baseY + holeH / 2 + rand() * Math.max(0, rangeH - holeH);
+    const depth = 2 + rand() * 3;
+
+    let hx = 0, hz = 0;
+    const rotation: [number, number, number] = face <= 1 ? [0, 0, 0] : [0, Math.PI / 2, 0];
+    if (face === 0) {
+      hx = px + (rand() - 0.5) * (w - holeW - 1);
       hz = pz + d / 2 - 0.3;
-    } else if (face === 1) { // back
-      hx = (rand() - 0.5) * (w - holeW - 1);
-      hy = py + (rand() - 0.5) * (h - holeH - 2);
+    } else if (face === 1) {
+      hx = px + (rand() - 0.5) * (w - holeW - 1);
       hz = pz - d / 2 + 0.3;
-    } else if (face === 2) { // left
+    } else if (face === 2) {
       hx = px - w / 2 + 0.3;
-      hy = py + (rand() - 0.5) * (h - holeH - 2);
-      hz = (rand() - 0.5) * (d - holeW - 1) + pz;
-    } else {               // right
+      hz = pz + (rand() - 0.5) * (d - holeW - 1);
+    } else {
       hx = px + w / 2 - 0.3;
-      hy = py + (rand() - 0.5) * (h - holeH - 2);
-      hz = (rand() - 0.5) * (d - holeW - 1) + pz;
+      hz = pz + (rand() - 0.5) * (d - holeW - 1);
     }
 
-    // Depth of the hole punched into the wall
-    const depth = 1.2 + rand() * 1.5;
-    const rotation: [number, number, number] = face <= 1 ? [0, 0, 0] : [0, Math.PI / 2, 0];
     const holeSize: [number, number, number] = [
       face <= 1 ? holeW : depth,
       holeH,
@@ -1008,60 +1071,167 @@ function DamageHoles({ position, w, h, d, stage, id }: DamageHolesProps) {
     ];
 
     holes.push(
-      <mesh key={i} position={[hx, hy, hz]} rotation={rotation}>
+      <mesh key={`${keyPrefix}h${i}`} position={[hx, hy, hz]} rotation={rotation}>
         <boxGeometry args={holeSize} />
         <meshStandardMaterial color="#0d0a08" roughness={1} />
       </mesh>
     );
-
-    // Exposed rebar / broken interior — small dark slab protruding
-    if (rand() < 0.6) {
+    // Exposed twisted rebar stub
+    if (rand() < 0.55) {
+      const rx = hx + (rand() - 0.5) * holeW * 0.4;
+      const ry = hy + (rand() - 0.5) * holeH * 0.4;
+      const rlen = 1.5 + rand() * 4;
       holes.push(
-        <mesh key={`r${i}`} position={[hx + (rand() - 0.5) * holeW * 0.5, hy + (rand() - 0.5) * holeH * 0.5, hz]}>
-          <boxGeometry args={[0.3 + rand() * 0.5, holeH * 0.8, 0.3 + rand() * 0.5]} />
-          <meshStandardMaterial color="#1a1410" roughness={1} />
+        <mesh key={`${keyPrefix}rb${i}`} position={[rx, ry, hz]}
+          rotation={[rand() * 0.5, rand() * Math.PI, rand() * 0.5]}>
+          <boxGeometry args={[0.3 + rand() * 0.4, rlen, 0.3 + rand() * 0.4]} />
+          <meshStandardMaterial color="#1a1410" metalness={0.5} roughness={0.6} />
+        </mesh>
+      );
+    }
+    // Dangling broken floor slab visible through hole
+    if (rand() < 0.35 && holeH > 4) {
+      holes.push(
+        <mesh key={`${keyPrefix}sl${i}`} position={[hx, hy + holeH * 0.35, hz + (face <= 1 ? -depth * 0.6 : 0)]}
+          rotation={[rand() * 0.3 - 0.15, 0, rand() * 0.3 - 0.15]}>
+          <boxGeometry args={[holeW * 0.9, 0.8 + rand() * 0.6, depth * 0.7]} />
+          <meshStandardMaterial color="#2a2420" roughness={1} />
         </mesh>
       );
     }
   }
+  return holes;
+}
 
-  // Stage 3: collapse — body shrinks to a stump, jagged top edge
+function DamageHoles({ position, w, h, d, stage, id }: DamageHolesProps) {
+  if (stage === 0) return null;
+
+  const rand = seededRand(id * 7919);
+  const px = position[0], pz = position[2];
+
+  // ── STAGE 3: Full structural collapse ─────────────────────────
   if (stage === 3) {
-    const stumpH = h * 0.28;
-    return (
-      <group>
-        {/* Replace building body with a low stump */}
-        <mesh position={[px, stumpH / 2, pz]}>
-          <boxGeometry args={[w, stumpH, d]} />
+    // Determine collapse style based on which zone took lethal damage
+    const entry = damageMap.get(id);
+    const baseKilled  = entry ? entry.hpBase <= 0 : false;
+    const midKilled   = entry ? entry.hpMid  <= 0 : false;
+
+    if (baseKilled) {
+      // BASE COLLAPSE: full pancake — building crumbles straight down
+      const rubbleH = h * 0.12; // almost flat pile
+      const rubbleElements: React.ReactElement[] = [];
+      // Main compressed rubble slab
+      rubbleElements.push(
+        <mesh key="pancake" position={[px, rubbleH / 2, pz]}>
+          <boxGeometry args={[w * 1.3, rubbleH, d * 1.3]} />
           <meshStandardMaterial color="#2a2420" roughness={1} />
         </mesh>
-        {/* Jagged broken top chunks */}
-        {Array.from({ length: 6 }, (_, ji) => {
-          const jx = px + (seededRand(id + ji * 13)() - 0.5) * (w * 0.7);
-          const jz = pz + (seededRand(id + ji * 17)() - 0.5) * (d * 0.7);
-          const jh = stumpH + seededRand(id + ji * 5)() * h * 0.18;
-          const jw = 1.5 + seededRand(id + ji * 3)() * 3;
-          return (
-            <mesh key={ji} position={[jx, jh, jz]}>
-              <boxGeometry args={[jw, 2 + seededRand(id + ji)() * 4, jw * 0.8]} />
-              <meshStandardMaterial color="#1e1a16" roughness={1} />
-            </mesh>
-          );
-        })}
-        {/* Rubble pile at base */}
-        {Array.from({ length: 8 }, (_, ri) => {
-          const r = seededRand(id + ri * 11);
-          return (
-            <mesh key={`rb${ri}`} position={[px + (r() - 0.5) * w * 1.1, 0.4 + r() * 0.8, pz + (r() - 0.5) * d * 1.1]}
-              rotation={[r() * 0.8, r() * Math.PI, r() * 0.6]}>
-              <boxGeometry args={[1 + r() * 3, 0.5 + r() * 1.5, 1 + r() * 2.5]} />
-              <meshStandardMaterial color="#2e2820" roughness={1} />
-            </mesh>
-          );
-        })}
-        {holes}
-      </group>
-    );
+      );
+      // Scattered large slabs that slid outward
+      for (let si = 0; si < 12; si++) {
+        const sr = seededRand(id + si * 37);
+        const angle = sr() * Math.PI * 2;
+        const dist  = w * 0.5 + sr() * w * 0.8;
+        const slabW = 3 + sr() * (w * 0.4);
+        const slabH = 0.8 + sr() * 3;
+        rubbleElements.push(
+          <mesh key={`slab${si}`}
+            position={[px + Math.cos(angle) * dist, slabH / 2, pz + Math.sin(angle) * dist]}
+            rotation={[sr() * 0.4, sr() * Math.PI, sr() * 0.4]}>
+            <boxGeometry args={[slabW, slabH, slabW * (0.4 + sr() * 0.6)]} />
+            <meshStandardMaterial color="#2e2820" roughness={1} />
+          </mesh>
+        );
+      }
+      return <group>{rubbleElements}</group>;
+    } else if (midKilled) {
+      // MID COLLAPSE: building snaps at mid-point — top half tilts/falls
+      const bottomH = h * 0.5;
+      const topH    = h * 0.5;
+      const tiltAng = (seededRand(id)() - 0.5) * 0.6; // tilt direction
+      return (
+        <group>
+          {/* Standing lower half */}
+          <mesh position={[px, bottomH / 2, pz]}>
+            <boxGeometry args={[w, bottomH, d]} />
+            <meshStandardMaterial color="#2a2420" roughness={1} />
+          </mesh>
+          {/* Cracked top — tilted/fallen */}
+          <mesh position={[px + Math.sin(tiltAng) * topH * 0.5, bottomH + topH * 0.35, pz]}
+            rotation={[0, 0, tiltAng]}>
+            <boxGeometry args={[w * 0.9, topH, d * 0.9]} />
+            <meshStandardMaterial color="#1e1a16" roughness={1} />
+          </mesh>
+          {/* Rubble at snap point */}
+          {Array.from({ length: 8 }, (_, ri) => {
+            const r = seededRand(id + ri * 19);
+            return (
+              <mesh key={`mi${ri}`}
+                position={[px + (r() - 0.5) * w * 1.2, bottomH - 1 + r() * 4, pz + (r() - 0.5) * d * 1.2]}
+                rotation={[r() * 0.8, r() * Math.PI, r() * 0.8]}>
+                <boxGeometry args={[2 + r() * 5, 1 + r() * 3, 2 + r() * 4]} />
+                <meshStandardMaterial color="#2e2820" roughness={1} />
+              </mesh>
+            );
+          })}
+        </group>
+      );
+    } else {
+      // TOP COLLAPSE: upper floors blown off, lower body intact with jagged top
+      const stumpH = h * 0.45;
+      return (
+        <group>
+          <mesh position={[px, stumpH / 2, pz]}>
+            <boxGeometry args={[w, stumpH, d]} />
+            <meshStandardMaterial color="#2a2420" roughness={1} />
+          </mesh>
+          {/* Jagged broken parapet */}
+          {Array.from({ length: 8 }, (_, ji) => {
+            const jx = px + (seededRand(id + ji * 13)() - 0.5) * (w * 0.75);
+            const jz = pz + (seededRand(id + ji * 17)() - 0.5) * (d * 0.75);
+            const jh = stumpH + seededRand(id + ji * 5)() * h * 0.12;
+            const jw = 3 + seededRand(id + ji * 3)() * 6;
+            return (
+              <mesh key={`top${ji}`} position={[jx, jh, jz]}>
+                <boxGeometry args={[jw, 3 + seededRand(id + ji)() * 6, jw * 0.7]} />
+                <meshStandardMaterial color="#1e1a16" roughness={1} />
+              </mesh>
+            );
+          })}
+          {/* Scattered upper debris around base */}
+          {Array.from({ length: 10 }, (_, ri) => {
+            const r = seededRand(id + ri * 11);
+            return (
+              <mesh key={`rb${ri}`}
+                position={[px + (r() - 0.5) * w * 1.4, 0.6 + r() * 1.5, pz + (r() - 0.5) * d * 1.4]}
+                rotation={[r() * 0.8, r() * Math.PI, r() * 0.6]}>
+                <boxGeometry args={[1.5 + r() * 4, 0.8 + r() * 2, 1.5 + r() * 3.5]} />
+                <meshStandardMaterial color="#2e2820" roughness={1} />
+              </mesh>
+            );
+          })}
+          {makeHoles(rand, px, pz, w, h, d, 0, stumpH, 8, stage, "tp")}
+        </group>
+      );
+    }
+  }
+
+  // ── STAGES 1 & 2: Zonal blast holes in the correct section ─────
+  const holes: React.ReactElement[] = [];
+  const entry = damageMap.get(id);
+
+  // Holes in whichever zones have taken damage
+  if (entry && entry.hpTop < 90) {
+    const topCount = Math.floor((1 - entry.hpTop / 100) * 6) + 1;
+    holes.push(...makeHoles(rand, px, pz, w, h, d, h * 0.66, h, topCount, stage, "t"));
+  }
+  if (entry && entry.hpMid < 90) {
+    const midCount = Math.floor((1 - entry.hpMid / 100) * 6) + 1;
+    holes.push(...makeHoles(rand, px, pz, w, h, d, h * 0.33, h * 0.66, midCount, stage, "m"));
+  }
+  if (entry && entry.hpBase < 90) {
+    const baseCount = Math.floor((1 - entry.hpBase / 100) * 6) + 1;
+    holes.push(...makeHoles(rand, px, pz, w, h, d, 0, h * 0.33, baseCount, stage, "b"));
   }
 
   return <group>{holes}</group>;
@@ -1093,37 +1263,49 @@ interface DebrisParticle {
 interface BuildingDebrisProps {
   position: [number, number, number];
   color: string;
-  triggerRef: React.MutableRefObject<(stage: number, w: number, h: number, d: number) => void>;
+  triggerRef: React.MutableRefObject<(stage: number, w: number, h: number, d: number, zone: "top"|"mid"|"base", zoneT: number) => void>;
 }
 
 function BuildingDebris({ position, color, triggerRef }: BuildingDebrisProps) {
-  const meshFacade  = useRef<THREE.InstancedMesh>(null); // painted surface chunks
-  const meshConcrete= useRef<THREE.InstancedMesh>(null); // dark raw concrete
-  const meshRebar   = useRef<THREE.InstancedMesh>(null); // thin metal rods
-  const meshGlass   = useRef<THREE.InstancedMesh>(null); // bright glass shards
-  const meshBrick   = useRef<THREE.InstancedMesh>(null); // brick/mortar chunks
+  const meshFacade  = useRef<THREE.InstancedMesh>(null);
+  const meshConcrete= useRef<THREE.InstancedMesh>(null);
+  const meshRebar   = useRef<THREE.InstancedMesh>(null);
+  const meshGlass   = useRef<THREE.InstancedMesh>(null);
+  const meshBrick   = useRef<THREE.InstancedMesh>(null);
   const particles   = useRef<DebrisParticle[]>([]);
   const hasActive   = useRef(false);
 
-  triggerRef.current = (stage: number, w: number, h: number, d: number) => {
-    // More particles at higher stages — finer, denser burst
-    const count = stage === 3 ? 128 : stage === 2 ? 72 : 40;
+  triggerRef.current = (stage: number, w: number, h: number, d: number, zone: "top"|"mid"|"base", zoneT: number) => {
+    // Particle count: full collapse = more, single-zone hit = fewer but always some
+    const isFullCollapse = stage === 3;
+    const count = isFullCollapse ? 120 : stage === 2 ? 60 : 28;
     const px = position[0], pz = position[2];
 
     const face = Math.floor(Math.random() * 4);
     const fx = face === 2 ? -w / 2 : face === 3 ? w / 2 : 0;
     const fz = face === 0 ? d / 2  : face === 1 ? -d / 2 : 0;
 
-    for (let i = 0; i < count; i++) {
-      const spreadX = face < 2 ? (Math.random() - 0.5) * w * 0.95 : (Math.random() - 0.5) * 0.6;
-      const spreadZ = face >= 2 ? (Math.random() - 0.5) * d * 0.95 : (Math.random() - 0.5) * 0.6;
-      const ry = 1.5 + Math.random() * (stage === 3 ? h * 0.98 : h * 0.6);
+    // Spawn height centred on the hit zone — this is the key physics realism fix:
+    // top hit → debris at top, base hit → debris at bottom
+    const zoneBaseY = zoneT > 0.66 ? h * 0.66 : zoneT > 0.33 ? h * 0.33 : 0;
+    const zoneSpan  = isFullCollapse ? h : h / 3;
 
-      const outX = fx !== 0 ? (fx / Math.abs(fx)) * (10 + Math.random() * 32) : (Math.random() - 0.5) * 22;
-      const outZ = fz !== 0 ? (fz / Math.abs(fz)) * (10 + Math.random() * 32) : (Math.random() - 0.5) * 22;
-      const lateralX = face < 2 ? (Math.random() - 0.5) * 24 : outX;
-      const lateralZ = face >= 2 ? (Math.random() - 0.5) * 24 : outZ;
-      const upward   = 4 + Math.random() * (stage === 3 ? 48 : 28);
+    for (let i = 0; i < count; i++) {
+      const spreadX = face < 2 ? (Math.random() - 0.5) * w * 0.95 : (Math.random() - 0.5) * 1.5;
+      const spreadZ = face >= 2 ? (Math.random() - 0.5) * d * 0.95 : (Math.random() - 0.5) * 1.5;
+      // Spawn within the struck zone's vertical range
+      const ry = zoneBaseY + 2 + Math.random() * (zoneSpan - 2);
+
+      const outX = fx !== 0 ? (fx / Math.abs(fx)) * (15 + Math.random() * 45) : (Math.random() - 0.5) * 30;
+      const outZ = fz !== 0 ? (fz / Math.abs(fz)) * (15 + Math.random() * 45) : (Math.random() - 0.5) * 30;
+      const lateralX = face < 2 ? (Math.random() - 0.5) * 35 : outX;
+      const lateralZ = face >= 2 ? (Math.random() - 0.5) * 35 : outZ;
+      // Physics: top-zone hits → high arc; base hits → mostly outward + some downward cascade
+      const upward = zone === "top"
+        ? 20 + Math.random() * 60          // top bricks fly high
+        : zone === "mid"
+          ? 8 + Math.random() * 40         // mid bricks moderate arc
+          : -5 + Math.random() * 30;       // base bricks: some go down (pancake), some out
 
       // Determine chunk type — weighted distribution
       const roll = Math.random();
@@ -1309,4 +1491,4 @@ function BuildingDebris({ position, color, triggerRef }: BuildingDebrisProps) {
 }
 
 // Module-level map so _applyBuildingVisuals can trigger debris directly
-export const debrisTriggers = new Map<number, (stage: number, w: number, h: number, d: number) => void>();
+export const debrisTriggers = new Map<number, (stage: number, w: number, h: number, d: number, zone: "top"|"mid"|"base", zoneT: number) => void>();
