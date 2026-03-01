@@ -450,10 +450,10 @@ interface Projectile {
 
 const FIRE_COOLDOWN: Record<PlaneTier, number> = { 1: 600, 2: 400, 3: 250, 4: 150, 5: 1200 };
 const TIER_DAMAGE:   Record<PlaneTier, number> = { 1: 20,  2: 35,  3: 50,  4: 70,  5: 150 };
-const BULLET_SPEED  = 600;
-const BULLET_RANGE: Record<PlaneTier, number>  = { 1: 350, 2: 450, 3: 550, 4: 650, 5: 0 };
+const BULLET_SPEED  = 750;
+const BULLET_RANGE: Record<PlaneTier, number>  = { 1: 900, 2: 1200, 3: 1500, 4: 1900, 5: 0 };
 const BOMB_BLAST_RADIUS = 35;
-const MAX_BULLETS = 40;
+const MAX_BULLETS = 60;
 const MAX_BOMBS   = 8;
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -563,7 +563,7 @@ function spawnProjectile(
 
   const spawnPos = isBomb
     ? plane.position.clone().add(new THREE.Vector3(0, -4, 0))
-    : plane.position.clone().addScaledVector(forward, 10);
+    : plane.position.clone().addScaledVector(forward, 22);
 
   const velocity = isBomb
     ? forward.clone().multiplyScalar(50).add(new THREE.Vector3(0, -8, 0))
