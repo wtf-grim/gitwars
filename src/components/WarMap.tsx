@@ -115,35 +115,112 @@ function IsraelFlag({ position }: { position: [number, number, number] }) {
   );
 }
 
+// ─── Pixel terrain texture generator ─────────────────────────────
+
+function makePixelTerrainTexture(): THREE.CanvasTexture {
+  const SIZE = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = SIZE; canvas.height = SIZE;
+  const ctx = canvas.getContext("2d")!;
+
+  // Base sandy fill
+  ctx.fillStyle = "#c8a96e";
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // Pixel noise — random variation in earthy tones
+  const colors = ["#b89858","#d4b880","#c0a060","#a88848","#dcc488","#b0905a","#c8b070","#aa8040"];
+  const pxSize = 8;
+  for (let y = 0; y < SIZE; y += pxSize) {
+    for (let x = 0; x < SIZE; x += pxSize) {
+      if (Math.random() > 0.55) {
+        ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)];
+        ctx.fillRect(x, y, pxSize, pxSize);
+      }
+    }
+  }
+
+  // Iran side tint (left half) — darker ochre
+  ctx.globalCompositeOperation = "multiply";
+  ctx.fillStyle = "rgba(160,130,80,0.35)";
+  ctx.fillRect(0, 0, SIZE / 2, SIZE);
+
+  // Israel side tint (right half) — lighter sand
+  ctx.fillStyle = "rgba(220,200,140,0.25)";
+  ctx.fillRect(SIZE / 2, 0, SIZE / 2, SIZE);
+  ctx.globalCompositeOperation = "source-over";
+
+  // Add some scattered dark spots (rocks/scrub)
+  for (let i = 0; i < 180; i++) {
+    const rx = Math.floor((Math.random() * SIZE) / pxSize) * pxSize;
+    const ry = Math.floor((Math.random() * SIZE) / pxSize) * pxSize;
+    ctx.fillStyle = Math.random() > 0.5 ? "#8a7248" : "#6a5830";
+    ctx.fillRect(rx, ry, pxSize, pxSize);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(18, 18);
+  tex.magFilter = THREE.NearestFilter; // keep pixel look sharp
+  return tex;
+}
+
 // ─── Desert Terrain ───────────────────────────────────────────────
 
 function DesertGround() {
+  const tex = React.useMemo(() => makePixelTerrainTexture(), []);
   return (
     <>
+      {/* Main pixel terrain */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-        <planeGeometry args={[8000, 8000, 24, 24]} />
-        <meshStandardMaterial color="#c8a96e" roughness={0.9} metalness={0} />
-      </mesh>
-      {/* Iran side — darker sand */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-2400, 0.05, 0]}>
-        <planeGeometry args={[3600, 8000]} />
-        <meshStandardMaterial color="#b8965a" roughness={1} transparent opacity={0.55} />
-      </mesh>
-      {/* Israel side — Med coast lighter */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[2400, 0.05, 0]}>
-        <planeGeometry args={[3600, 8000]} />
-        <meshStandardMaterial color="#d4b87a" roughness={1} transparent opacity={0.4} />
-      </mesh>
-      {/* No-man's-land centre — pale dry sand */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.08, 0]}>
-        <planeGeometry args={[1200, 8000]} />
-        <meshStandardMaterial color="#dfc99a" roughness={1} transparent opacity={0.5} />
+        <planeGeometry args={[8000, 8000, 48, 48]} />
+        <meshStandardMaterial map={tex} roughness={0.95} metalness={0} />
       </mesh>
       {/* Border line */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.2, 0]}>
-        <planeGeometry args={[10, 8000]} />
-        <meshStandardMaterial color="#ff2222" emissive="#ff0000" emissiveIntensity={0.5} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.3, 0]}>
+        <planeGeometry args={[12, 8000]} />
+        <meshStandardMaterial color="#ff2222" emissive="#ff0000" emissiveIntensity={0.6} />
       </mesh>
+    </>
+  );
+}
+
+// ─── Clouds ───────────────────────────────────────────────────────
+
+function Cloud({ position }: { position: [number, number, number] }) {
+  return (
+    <group position={position}>
+      <mesh position={[0, 0, 0]}>
+        <boxGeometry args={[180, 40, 90]} />
+        <meshStandardMaterial color="#f0f4ff" transparent opacity={0.82} roughness={1} />
+      </mesh>
+      <mesh position={[60, 18, 10]}>
+        <boxGeometry args={[120, 50, 80]} />
+        <meshStandardMaterial color="#ffffff" transparent opacity={0.78} roughness={1} />
+      </mesh>
+      <mesh position={[-50, 12, -10]}>
+        <boxGeometry args={[100, 38, 70]} />
+        <meshStandardMaterial color="#eef2ff" transparent opacity={0.7} roughness={1} />
+      </mesh>
+      <mesh position={[20, 30, 0]}>
+        <boxGeometry args={[80, 36, 60]} />
+        <meshStandardMaterial color="#ffffff" transparent opacity={0.85} roughness={1} />
+      </mesh>
+    </group>
+  );
+}
+
+function Clouds() {
+  const cloudPositions: [number, number, number][] = [
+    [-1200, 900,  -2000], [600, 1100, -1500], [-400, 800, -800],
+    [1400, 1000, -2200], [-800, 1200, 400], [200, 950, 1000],
+    [-1600, 850, 1200], [900, 1050, 1800], [-200, 1150, 2200],
+    [1600, 900, 800],  [-1000, 1000, -1600], [400, 1100, -3000],
+    [-600, 850, 3000], [1200, 1000, 2600],  [-1800, 1050, -400],
+    [0, 1200, -2800], [800, 900, 2000], [-1400, 1100, 1800],
+  ];
+  return (
+    <>
+      {cloudPositions.map((pos, i) => <Cloud key={i} position={pos} />)}
     </>
   );
 }
@@ -1176,18 +1253,30 @@ const TIER_NAMES: Record<number, string> = {
   1: "SCOUT", 2: "FIGHTER", 3: "INTERCEPTOR", 4: "STEALTH", 5: "BOMBER"
 };
 
+const MATCH_DURATION = 5 * 60; // 5 minutes
+
 function HUD({ side, score, tier }: { side: "iran" | "israel"; score: ScoreState; tier: number }) {
   const isIran = side === "iran";
   const [locked, setLocked] = useState(false);
   // Flash the reticle briefly when shooting
   const [firing, setFiring] = useState(false);
   const firingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Match timer
+  const [timeLeft, setTimeLeft] = useState(MATCH_DURATION);
+  const matchOver = timeLeft <= 0;
 
   useEffect(() => {
     const onChange = () => setLocked(!!document.pointerLockElement);
     document.addEventListener("pointerlockchange", onChange);
     return () => document.removeEventListener("pointerlockchange", onChange);
   }, []);
+
+  // Match countdown
+  useEffect(() => {
+    if (matchOver) return;
+    const id = setInterval(() => setTimeLeft(t => Math.max(0, t - 1)), 1000);
+    return () => clearInterval(id);
+  }, [matchOver]);
 
   // Listen for fire events via a custom DOM event dispatched from handleFire
   useEffect(() => {
@@ -1223,24 +1312,63 @@ function HUD({ side, score, tier }: { side: "iran" | "israel"; score: ScoreState
 
       {/* Score panel — top centre */}
       <div
-        className="absolute top-3 left-1/2 -translate-x-1/2 flex gap-6 bg-black/55 border border-white/10 rounded-lg px-4 py-1.5"
+        className="absolute top-3 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1"
         style={{ fontFamily: "monospace" }}
       >
-        <span className="text-xs font-bold" style={{ color: "#44ff88" }}>
-          🇮🇷 {score.iranDestroyed} destroyed · {score.iranPoints} pts
-        </span>
-        <span className="text-white/30 text-xs">|</span>
-        <span className="text-xs font-bold" style={{ color: "#88ccff" }}>
-          🇮🇱 {score.israelDestroyed} destroyed · {score.israelPoints} pts
-        </span>
+        <div className="flex gap-6 bg-black/65 border border-white/15 rounded-lg px-4 py-1.5">
+          <span className="text-xs font-bold" style={{ color: "#44ff88" }}>
+            🇮🇷 {score.iranDestroyed} bldg · {score.iranPoints} pts
+          </span>
+          <span className="text-white/30 text-xs">|</span>
+          <span className="text-xs font-bold" style={{ color: "#88ccff" }}>
+            🇮🇱 {score.israelDestroyed} bldg · {score.israelPoints} pts
+          </span>
+        </div>
+        {/* Match timer */}
+        <div
+          className="px-3 py-0.5 rounded text-xs font-bold tracking-widest"
+          style={{
+            background: timeLeft <= 30 ? "rgba(200,30,30,0.8)" : "rgba(0,0,0,0.6)",
+            color: timeLeft <= 30 ? "#ffaaaa" : "rgba(255,255,255,0.6)",
+            border: timeLeft <= 30 ? "1px solid rgba(255,80,80,0.5)" : "1px solid rgba(255,255,255,0.1)",
+            animation: timeLeft <= 10 && !matchOver ? "pulse 0.5s ease-in-out infinite alternate" : "none",
+          }}
+        >
+          {matchOver ? "⏰ MATCH OVER" : `${Math.floor(timeLeft / 60)}:${String(timeLeft % 60).padStart(2, "0")}`}
+        </div>
       </div>
+      {/* Match-over overlay */}
+      {matchOver && (
+        <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+          <div className="text-center bg-black/80 border border-white/20 rounded-2xl px-12 py-8">
+            <div className="text-white text-5xl font-black mb-4">⏰ MATCH OVER</div>
+            <div className="flex gap-12 justify-center">
+              <div className="text-center">
+                <div className="text-green-400 text-2xl font-black">{score.iranPoints}</div>
+                <div className="text-white/50 text-sm">🇮🇷 IRAN</div>
+                <div className="text-white/30 text-xs">{score.iranDestroyed} buildings</div>
+              </div>
+              <div className="text-white/20 text-3xl">vs</div>
+              <div className="text-center">
+                <div className="text-blue-400 text-2xl font-black">{score.israelPoints}</div>
+                <div className="text-white/50 text-sm">🇮🇱 ISRAEL</div>
+                <div className="text-white/30 text-xs">{score.israelDestroyed} buildings</div>
+              </div>
+            </div>
+            <div className="mt-6 text-yellow-400 text-lg font-bold">
+              {score.iranPoints > score.israelPoints ? "🇮🇷 IRAN WINS!" :
+               score.israelPoints > score.iranPoints ? "🇮🇱 ISRAEL WINS!" : "🤝 DRAW!"}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Click-to-fly prompt */}
       {!locked && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none" style={{ fontFamily: "sans-serif" }}>
           <div className="bg-black/60 border border-white/20 rounded-xl px-6 py-4 text-white text-sm">
             <div className="text-lg mb-1">🖱️ Click to fly</div>
-            <div className="text-white/50 text-xs">Move mouse to steer · Space to boost · Click to shoot · ESC to unlock</div>
+            <div className="text-white/50 text-xs">Move mouse to steer · Space to boost · Hold click to fire · ESC to unlock</div>
           </div>
         </div>
       )}
@@ -1338,7 +1466,7 @@ function HUD({ side, score, tier }: { side: "iran" | "israel"; score: ScoreState
       )}
 
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/40 text-xs text-center" style={{ fontFamily: "monospace" }}>
-        Mouse — steer &nbsp;|&nbsp; Space — boost &nbsp;|&nbsp; Click — {locked ? "shoot" : "lock mouse"}
+        Mouse — steer &nbsp;|&nbsp; Space — boost &nbsp;|&nbsp; {locked ? "Hold LMB — fire" : "Click — lock mouse"}
       </div>
 
       <div className="absolute top-1/2 left-[15%] -translate-y-1/2 text-green-400/30 text-6xl font-black pointer-events-none select-none" style={{ fontFamily: "sans-serif" }}>
@@ -1532,29 +1660,43 @@ export default function WarMap({ side, walletAddress: _walletAddress, tier }: Pr
       {/* Canvas wrapper — receives CSS translate for screen shake */}
       <div ref={canvasWrapRef} style={{ position: "absolute", inset: 0 }}>
       <Canvas
-        camera={{ position: [0, 800, 2000], fov: 70, near: 1, far: 12000 }}
-        gl={{ antialias: false, powerPreference: "high-performance" }}
+        camera={{ position: [0, 800, 2000], fov: 65, near: 5, far: 14000 }}
+        gl={{ antialias: true, powerPreference: "high-performance", toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.1 }}
         dpr={Math.min(typeof window !== "undefined" ? window.devicePixelRatio : 1, 1.5)}
-        style={{ background: "#c8d4e8" }}
+        style={{ background: "#6a9fd8" }}
       >
-        <ambientLight color="#ffe8c0" intensity={0.8} />
-        <directionalLight color="#fff5e0" intensity={2.5} position={[1000, 1600, 400]} castShadow={false} />
-        <hemisphereLight args={["#b0c8f0", "#c8a96e", 0.6]} />
-        <fog attach="fog" args={["#d4c4a0", 2400, 9000]} />
+        {/* Realistic flight-sim lighting */}
+        <ambientLight color="#c8daf8" intensity={0.5} />
+        <directionalLight color="#fff8e8" intensity={3.2} position={[2000, 3000, 1000]} castShadow={false} />
+        <directionalLight color="#ffd080" intensity={0.6} position={[-1000, 400, 2000]} />
+        <hemisphereLight args={["#7ab0e8", "#d4b87a", 0.7]} />
+        <fog attach="fog" args={["#a8c4e0", 3000, 11000]} />
 
-        {/* Sky dome — covers full map radius */}
+        {/* Sky dome — two-layer gradient-ish sky */}
         <mesh>
-          <sphereGeometry args={[3800, 16, 8]} />
-          <meshBasicMaterial color="#87b4d8" side={THREE.BackSide} />
+          <sphereGeometry args={[9000, 24, 12]} />
+          <meshBasicMaterial color="#4a8fd4" side={THREE.BackSide} />
         </mesh>
+        {/* Horizon haze layer */}
+        <mesh rotation={[0, 0, 0]} position={[0, -800, 0]}>
+          <cylinderGeometry args={[9000, 9000, 1800, 32, 1, true]} />
+          <meshBasicMaterial color="#c8d8e8" side={THREE.BackSide} transparent opacity={0.55} />
+        </mesh>
+        {/* Sun disc */}
+        <mesh position={[2000, 3200, -6000]}>
+          <sphereGeometry args={[160, 12, 8]} />
+          <meshBasicMaterial color="#fff8d0" />
+        </mesh>
+        <pointLight position={[2000, 3200, -6000]} color="#ffe8a0" intensity={0.4} distance={20000} />
 
-        {/* Visible dome boundary — glowing edge sphere so players see the limit */}
+        {/* Boundary dome — glowing edge */}
         <mesh>
           <sphereGeometry args={[3780, 32, 16]} />
-          <meshBasicMaterial color="#88ccff" side={THREE.FrontSide} transparent opacity={0.04} />
+          <meshBasicMaterial color="#88ccff" side={THREE.FrontSide} transparent opacity={0.03} />
         </mesh>
 
         <DesertGround />
+        <Clouds />
         <Mountains side="iran" />
         <Mountains side="israel" />
 

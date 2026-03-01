@@ -603,12 +603,12 @@ interface Projectile {
 // Fire cooldown in ms — each tier fires faster than the previous
 const FIRE_COOLDOWN: Record<PlaneTier, number> = { 1: 280, 2: 160, 3: 90, 4: 45, 5: 900 };
 // Damage per hit — higher tiers punch harder
-const TIER_DAMAGE:   Record<PlaneTier, number> = { 1: 20,  2: 35,  3: 50,  4: 70,  5: 150 };
+const TIER_DAMAGE:   Record<PlaneTier, number> = { 1: 40,  2: 70,  3: 100,  4: 140,  5: 300 };
 // Per-tier bullet speed — higher tiers fire faster rounds
 const BULLET_SPEED_TIER: Record<PlaneTier, number> = { 1: 650, 2: 750, 3: 870, 4: 1020, 5: 0 };
 const BULLET_RANGE: Record<PlaneTier, number>  = { 1: 900, 2: 1200, 3: 1500, 4: 1900, 5: 0 };
 // Per-tier bullet cross-section scale (higher = fatter tracer = more visual weight)
-const BULLET_SCALE_TIER: Record<PlaneTier, number> = { 1: 0.7, 2: 0.9, 3: 1.1, 4: 1.35, 5: 1.0 };
+const BULLET_SCALE_TIER: Record<PlaneTier, number> = { 1: 1.4, 2: 1.8, 3: 2.2, 4: 2.7, 5: 1.0 };
 const BOMB_BLAST_RADIUS = 35;
 const MAX_BULLETS = 80;
 const MAX_BOMBS   = 8;
@@ -623,7 +623,8 @@ function darkenHex(hex: string, amount: number): string {
   return `#${c.getHexString()}`;
 }
 
-const _zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
+const _zeroMatrix  = new THREE.Matrix4().makeScale(0, 0, 0);
+const _debrisZero  = new THREE.Matrix4().makeScale(0, 0, 0);
 
 function zeroSlot(mesh: THREE.InstancedMesh | null, slot: number) {
   if (!mesh) return;
@@ -674,12 +675,19 @@ function applyDamage(
       score.current.israelDestroyed++;
       score.current.israelPoints += rec.pointValue;
     }
-    onScoreChange({ ...score.current });
   } else if (entry.hpMid <= 20 || entry.hp <= 33) {
     entry.stage = 2;
+    // Partial score for heavy damage
+    if (rec.side === "iran") score.current.iranPoints += Math.floor(rec.pointValue * 0.25);
+    else score.current.israelPoints += Math.floor(rec.pointValue * 0.25);
   } else if (entry.hp <= 66) {
     entry.stage = 1;
+    // Small score for initial damage
+    if (rec.side === "iran") score.current.iranPoints += Math.floor(rec.pointValue * 0.1);
+    else score.current.israelPoints += Math.floor(rec.pointValue * 0.1);
   }
+  // Always notify score change on every hit so counter updates
+  onScoreChange({ ...score.current });
 
   // Always trigger zonal debris at the hit point, even mid-stage
   _applyBuildingVisuals(rec.id, entry.stage, prevStage, rec.color, rec.w, rec.h, rec.d, zone, zoneT);
@@ -787,12 +795,19 @@ function useCombatSystem(
   const bulletSlots   = useRef<boolean[]>(Array(MAX_BULLETS).fill(false));
   const bombSlots     = useRef<boolean[]>(Array(MAX_BOMBS).fill(false));
   const _pBox         = useRef(new THREE.Box3());
-  const _pSize        = new THREE.Vector3(0.6, 0.6, 2.5);
+  const _pSize        = new THREE.Vector3(4, 4, 8);
   const _planeBox     = useRef(new THREE.Box3());
   // Tight hitbox — just the fuselage core. Wings clip but don't crash.
   const _planeSize    = new THREE.Vector3(6, 3, 6);
   const crashed       = useRef(false);
   const prevPlanePos  = useRef(new THREE.Vector3());
+  // Pre-allocated scratch objects — never re-created per frame
+  const _projMat      = useRef(new THREE.Matrix4());
+  const _projQuat     = useRef(new THREE.Quaternion());
+  const _projScale    = useRef(new THREE.Vector3());
+  const _projDir      = useRef(new THREE.Vector3());
+  const _projFwd      = useRef(new THREE.Vector3(0, 0, 1));
+  const _moveDir      = useRef(new THREE.Vector3());
 
   void side; // side used for future PvP targeting, available in scope
 
@@ -824,8 +839,8 @@ function useCombatSystem(
         const overlapZ = Math.min(pp.z - bMin.z, bMax.z - pp.z);
 
         // Penetration speed — how fast were we moving into the building last frame
-        const moveDir = pp.clone().sub(prevPlanePos.current);
-        const speed = moveDir.length() / dt;
+        _moveDir.current.copy(pp).sub(prevPlanePos.current);
+        const speed = _moveDir.current.length() / dt;
 
         if (speed > 220) {
           // High-speed direct impact → crash
@@ -865,9 +880,6 @@ function useCombatSystem(
     }
 
     // ── Update projectiles ──────────────────────────────────────
-    const _mat = new THREE.Matrix4();
-    const _quat = new THREE.Quaternion();
-
     for (const p of projectiles.current) {
       if (!p.active) continue;
 
@@ -897,7 +909,8 @@ function useCombatSystem(
         let hit = false;
         for (const id of _nearbyBuildingIds(p.position)) {
           const rec = _registryById.get(id);
-          if (rec && rec.box.intersectsBox(_pBox.current)) {
+          const dmgEntry = damageMap.get(id);
+          if (rec && !dmgEntry?.destroyed && rec.box.intersectsBox(_pBox.current)) {
             // Hit Y relative to building base — used for zonal physics crumble
             const hitY = p.position.y - rec.position[1];
             applyDamage(rec, p.damage, hitY, score, onScoreChange);
@@ -911,18 +924,19 @@ function useCombatSystem(
         if (hit) continue;
       }
 
-      // Update instance matrix
+      // Update instance matrix — reuse pre-allocated scratch objects
       const mesh = p.type === "bullet" ? bulletMesh : bombMesh;
       if (mesh) {
         // Orient bullet along velocity
         if (p.velocity.lengthSq() > 0.01) {
-          const dir = p.velocity.clone().normalize();
-          _quat.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+          _projDir.current.copy(p.velocity).normalize();
+          _projQuat.current.setFromUnitVectors(_projFwd.current, _projDir.current);
         }
         // Scale tracer by tier — higher tier = fatter, more visible round
         const bs = p.type === "bullet" ? BULLET_SCALE_TIER[tier] : 1.0;
-        _mat.compose(p.position, _quat, new THREE.Vector3(bs, bs, bs));
-        mesh.setMatrixAt(p.instanceSlot, _mat);
+        _projScale.current.set(bs, bs, bs);
+        _projMat.current.compose(p.position, _projQuat.current, _projScale.current);
+        mesh.setMatrixAt(p.instanceSlot, _projMat.current);
         mesh.instanceMatrix.needsUpdate = true;
       }
     }
@@ -969,7 +983,7 @@ export function CombatLayer({ planeRef, fireQueueRef, side, tier, onScoreChange,
 
       {/* Bullet pool — elongated tracer rod, highly emissive */}
       <instancedMesh ref={bulletMeshRef} args={[undefined, undefined, MAX_BULLETS]} frustumCulled={false}>
-        <boxGeometry args={[0.28, 0.28, 3.6]} />
+        <boxGeometry args={[0.55, 0.55, 6.0]} />
         <meshStandardMaterial
           color={bulletColor}
           emissive={bulletColor}
@@ -998,33 +1012,45 @@ interface DamageableBuildingProps {
 }
 
 export function DamageableBuilding({ def }: DamageableBuildingProps) {
-  const groupRef   = useRef<THREE.Group>(null);
   const bodyMatRef = useRef<THREE.MeshStandardMaterial>(null);
-  const [showSmoke, setShowSmoke]   = useState(false);
-  const [stage, setStage]           = useState<0|1|2|3>(0);
+  const [stage, setStage]       = useState<0|1|2|3>(0);
+  const [showSmoke, setShowSmoke] = useState(false);
+  const stageRef  = useRef<0|1|2|3>(0);
 
   const debrisTriggerRef = useRef<(stage: number, w: number, h: number, d: number, zone: "top"|"mid"|"base", zoneT: number) => void>(null!);
 
+  // Register debris trigger only (no longer registering setStage here)
   useEffect(() => {
-    buildingRefs.set(def.id, {
-      matRef:   bodyMatRef as React.RefObject<THREE.MeshStandardMaterial>,
-      groupRef: groupRef   as React.RefObject<THREE.Group>,
-      setSmoke: setShowSmoke,
-      setStage: setStage as (s: 0|1|2|3) => void,
-    });
     debrisTriggers.set(def.id, (s, w, h, d, zone, zoneT) => {
       if (debrisTriggerRef.current) debrisTriggerRef.current(s, w, h, d, zone, zoneT);
     });
+    // Register smoke setter so applyDamage can still enable it
+    buildingRefs.set(def.id, {
+      matRef:   bodyMatRef as React.RefObject<THREE.MeshStandardMaterial>,
+      groupRef: { current: null } as React.RefObject<THREE.Group>,
+      setSmoke: setShowSmoke,
+      setStage: (s: 0|1|2|3) => { /* driven by useFrame below */ void s; },
+    });
     return () => {
-      buildingRefs.delete(def.id);
       debrisTriggers.delete(def.id);
+      buildingRefs.delete(def.id);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def.id]);
 
+  // Poll damageMap every frame — reliable regardless of call-site timing
+  useFrame(() => {
+    const entry = damageMap.get(def.id);
+    if (!entry) return;
+    if (entry.stage !== stageRef.current) {
+      stageRef.current = entry.stage;
+      setStage(entry.stage);
+      if (entry.stage >= 2) setShowSmoke(true);
+    }
+  });
+
   return (
-    <group ref={groupRef}>
-      {/* Hide the original building at stage 3 — DamageHoles renders the stump */}
+    <group>
       {stage < 3 && (
         <Building
           position={def.position}
@@ -1500,12 +1526,11 @@ function BuildingDebris({ position, color, triggerRef }: BuildingDebrisProps) {
       anyAlive = true;
     }
 
-    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
-    for (let i = fi; i < DEBRIS_CAP; i++) mF.setMatrixAt(i, zero);
-    for (let i = ci; i < DEBRIS_CAP; i++) mC.setMatrixAt(i, zero);
-    for (let i = ri; i < DEBRIS_CAP; i++) mR.setMatrixAt(i, zero);
-    for (let i = gi; i < DEBRIS_CAP; i++) mG.setMatrixAt(i, zero);
-    for (let i = bi; i < DEBRIS_CAP; i++) mB.setMatrixAt(i, zero);
+    for (let i = fi; i < DEBRIS_CAP; i++) mF.setMatrixAt(i, _debrisZero);
+    for (let i = ci; i < DEBRIS_CAP; i++) mC.setMatrixAt(i, _debrisZero);
+    for (let i = ri; i < DEBRIS_CAP; i++) mR.setMatrixAt(i, _debrisZero);
+    for (let i = gi; i < DEBRIS_CAP; i++) mG.setMatrixAt(i, _debrisZero);
+    for (let i = bi; i < DEBRIS_CAP; i++) mB.setMatrixAt(i, _debrisZero);
     mF.instanceMatrix.needsUpdate = true;
     mC.instanceMatrix.needsUpdate = true;
     mR.instanceMatrix.needsUpdate = true;

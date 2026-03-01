@@ -246,6 +246,14 @@ export default function PlayerPlane({ side, tier, groupRef, fireQueueRef }: Prop
   const boost      = useRef(false);
   const mouseDelta = useRef({ x: 0, y: 0 });
   const locked     = useRef(false);
+  const mouseDown  = useRef(false);
+  // Pre-allocated scratch to avoid per-frame GC pressure
+  const _euler     = useRef(new THREE.Euler(0, 0, 0, "YXZ"));
+  const _fwd       = useRef(new THREE.Vector3());
+  const _camBack   = useRef(new THREE.Vector3());
+  const _camUp     = useRef(new THREE.Vector3());
+  const _camPos    = useRef(new THREE.Vector3());
+  const _lookAt    = useRef(new THREE.Vector3());
 
   // Light refs for engine flicker — created here, passed to AirplaneMesh
   const lr0 = useRef<THREE.PointLight>(null);
@@ -257,11 +265,14 @@ export default function PlayerPlane({ side, tier, groupRef, fireQueueRef }: Prop
   useEffect(() => {
     const canvas = gl.domElement;
     const onClick = () => {
-      if (!locked.current) {
-        canvas.requestPointerLock();
-      } else {
-        fireQueueRef.current = true;
-      }
+      if (!locked.current) canvas.requestPointerLock();
+    };
+    const onMouseDown = (e: MouseEvent) => {
+      if (!locked.current) return;
+      if (e.button === 0) mouseDown.current = true;
+    };
+    const onMouseUp = (e: MouseEvent) => {
+      if (e.button === 0) mouseDown.current = false;
     };
     const onLockChange = () => { locked.current = document.pointerLockElement === canvas; };
     const onMouseMove  = (e: MouseEvent) => {
@@ -273,12 +284,16 @@ export default function PlayerPlane({ side, tier, groupRef, fireQueueRef }: Prop
     const onKeyUp   = (e: KeyboardEvent) => { if (e.code === "Space") boost.current = false; };
 
     canvas.addEventListener("click", onClick);
+    canvas.addEventListener("mousedown", onMouseDown);
+    window.addEventListener("mouseup",  onMouseUp);
     document.addEventListener("pointerlockchange", onLockChange);
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup",   onKeyUp);
     return () => {
       canvas.removeEventListener("click", onClick);
+      canvas.removeEventListener("mousedown", onMouseDown);
+      window.removeEventListener("mouseup",  onMouseUp);
       document.removeEventListener("pointerlockchange", onLockChange);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("keydown", onKeyDown);
@@ -292,6 +307,8 @@ export default function PlayerPlane({ side, tier, groupRef, fireQueueRef }: Prop
     if (!plane) return;
     const dt = Math.min(delta, 0.05);
 
+    if (mouseDown.current && locked.current) fireQueueRef.current = true;
+
     const yawDelta = mouseDelta.current.x * MOUSE_YAW;
     yaw.current   -= yawDelta;
     pitch.current += mouseDelta.current.y * MOUSE_PITCH;
@@ -303,11 +320,12 @@ export default function PlayerPlane({ side, tier, groupRef, fireQueueRef }: Prop
     const targetRoll = clamp(yawDelta / (MOUSE_YAW * 10), -1, 1) * MAX_BANK;
     roll.current += (targetRoll - roll.current) * Math.min(1, BANK_SPEED * dt);
 
-    plane.quaternion.setFromEuler(new THREE.Euler(pitch.current, yaw.current, roll.current, "YXZ"));
+    _euler.current.set(pitch.current, yaw.current, roll.current);
+    plane.quaternion.setFromEuler(_euler.current);
 
-    const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(plane.quaternion);
+    _fwd.current.set(0, 0, 1).applyQuaternion(plane.quaternion);
     const speed = (boost.current ? TIER_BOOST[tier] : TIER_SPEED[tier]) * dt;
-    plane.position.addScaledVector(forward, speed);
+    plane.position.addScaledVector(_fwd.current, speed);
 
     plane.position.x = clamp(plane.position.x, -MAP_BOUND, MAP_BOUND);
     plane.position.z = clamp(plane.position.z, -MAP_BOUND, MAP_BOUND);
@@ -316,14 +334,15 @@ export default function PlayerPlane({ side, tier, groupRef, fireQueueRef }: Prop
     const slerpT = 1 - Math.exp(-CAM_SMOOTH * dt);
     camRigQ.current.slerp(plane.quaternion, slerpT);
 
-    const camBack = new THREE.Vector3(0, 0, -1).applyQuaternion(camRigQ.current);
-    const camUp   = new THREE.Vector3(0, 1, 0).applyQuaternion(camRigQ.current);
-    const camPos  = plane.position.clone()
-      .addScaledVector(camBack, TIER_CAM_BACK[tier])
-      .addScaledVector(camUp,   TIER_CAM_UP[tier]);
+    _camBack.current.set(0, 0, -1).applyQuaternion(camRigQ.current);
+    _camUp.current.set(0, 1, 0).applyQuaternion(camRigQ.current);
+    _camPos.current.copy(plane.position)
+      .addScaledVector(_camBack.current, TIER_CAM_BACK[tier])
+      .addScaledVector(_camUp.current,   TIER_CAM_UP[tier]);
 
-    camera.position.copy(camPos);
-    camera.lookAt(plane.position.clone().addScaledVector(forward, 40));
+    camera.position.copy(_camPos.current);
+    _lookAt.current.copy(plane.position).addScaledVector(_fwd.current, 40);
+    camera.lookAt(_lookAt.current);
 
     // Engine light flicker — merged from tier sub-components (saves 3-4 useFrame registrations)
     const t = clock.getElapsedTime();
