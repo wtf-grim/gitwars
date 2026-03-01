@@ -211,7 +211,7 @@ export interface BuildingProps {
   color: string;
   windowColor?: string;
   roofColor?: string;
-  bodyMatRef?: React.RefObject<THREE.MeshStandardMaterial>;
+  bodyMatRef?: React.RefObject<THREE.MeshStandardMaterial | null>;
 }
 
 export function Building({ position, w, h, d, color, windowColor = "#ffcc88", roofColor, bodyMatRef }: BuildingProps) {

@@ -384,8 +384,8 @@ ALL_BUILDINGS.forEach(b => {
 // Allows applyDamage to imperatively update materials — zero per-frame polling
 
 interface BuildingVisualRef {
-  matRef: React.RefObject<THREE.MeshStandardMaterial>;
-  groupRef: React.RefObject<THREE.Group>;
+  matRef: React.RefObject<THREE.MeshStandardMaterial | null>;
+  groupRef: React.RefObject<THREE.Group | null>;
   setSmoke: (v: boolean) => void;
   setRubble: (v: boolean) => void;
 }
@@ -599,10 +599,10 @@ function spawnProjectile(
 // ─── useCombatSystem ─────────────────────────────────────────────
 
 function useCombatSystem(
-  planeRef: React.RefObject<THREE.Group>,
-  bulletMeshRef: React.RefObject<THREE.InstancedMesh>,
-  bombMeshRef: React.RefObject<THREE.InstancedMesh>,
-  fireQueueRef: React.RefObject<boolean>,
+  planeRef: React.RefObject<THREE.Group | null>,
+  bulletMeshRef: React.RefObject<THREE.InstancedMesh | null>,
+  bombMeshRef: React.RefObject<THREE.InstancedMesh | null>,
+  fireQueueRef: React.RefObject<boolean | null>,
   side: "iran" | "israel",
   tier: PlaneTier,
   onScoreChange: (s: ScoreState) => void
@@ -702,8 +702,8 @@ function useCombatSystem(
 // ─── CombatLayer (R3F component, goes inside Canvas) ─────────────
 
 export interface CombatLayerProps {
-  planeRef: React.RefObject<THREE.Group>;
-  fireQueueRef: React.RefObject<boolean>;
+  planeRef: React.RefObject<THREE.Group | null>;
+  fireQueueRef: React.RefObject<boolean | null>;
   side: "iran" | "israel";
   tier: PlaneTier;
   onScoreChange: (s: ScoreState) => void;

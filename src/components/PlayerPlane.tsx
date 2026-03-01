@@ -8,8 +8,8 @@ import type { PlaneTier } from "./PlaneSelectModal";
 interface Props {
   side: "iran" | "israel";
   tier: PlaneTier;
-  groupRef: React.RefObject<THREE.Group>;
-  fireQueueRef: React.RefObject<boolean>;
+  groupRef: React.RefObject<THREE.Group | null>;
+  fireQueueRef: React.RefObject<boolean | null>;
 }
 
 // ─── Colour helpers ──────────────────────────────────────────────
@@ -49,7 +49,7 @@ function Tier1Mesh({ side }: { side: "iran" | "israel" }) {
 }
 
 // ─── Tier 2: Light Fighter (twin-engine) ────────────────────────
-function Tier2Mesh({ side, l1, l2 }: { side: "iran" | "israel"; l1: React.RefObject<THREE.PointLight>; l2: React.RefObject<THREE.PointLight> }) {
+function Tier2Mesh({ side, l1, l2 }: { side: "iran" | "israel"; l1: React.RefObject<THREE.PointLight | null>; l2: React.RefObject<THREE.PointLight | null> }) {
   const { body, wing, accent } = sideColors(side);
   return (
     <group rotation={[0, Math.PI, 0]}>
@@ -82,7 +82,7 @@ function Tier2Mesh({ side, l1, l2 }: { side: "iran" | "israel"; l1: React.RefObj
 }
 
 // ─── Tier 3: Strike Hawk (delta-wing interceptor) ────────────────
-function Tier3Mesh({ side, l1 }: { side: "iran" | "israel"; l1: React.RefObject<THREE.PointLight> }) {
+function Tier3Mesh({ side, l1 }: { side: "iran" | "israel"; l1: React.RefObject<THREE.PointLight | null> }) {
   const { body, wing, accent } = sideColors(side);
   return (
     <group rotation={[0, Math.PI, 0]}>
@@ -114,7 +114,7 @@ function Tier3Mesh({ side, l1 }: { side: "iran" | "israel"; l1: React.RefObject<
 }
 
 // ─── Tier 4: F-16 Viper ───────────────────────────────────────────
-function Tier4Mesh({ side, l1 }: { side: "iran" | "israel"; l1: React.RefObject<THREE.PointLight> }) {
+function Tier4Mesh({ side, l1 }: { side: "iran" | "israel"; l1: React.RefObject<THREE.PointLight | null> }) {
   const { body, wing, accent } = sideColors(side);
   return (
     <group rotation={[0, Math.PI, 0]}>
@@ -155,7 +155,7 @@ function Tier4Mesh({ side, l1 }: { side: "iran" | "israel"; l1: React.RefObject<
 }
 
 // ─── Tier 5: B-52 Hammer (Strategic Bomber) ──────────────────────
-function Tier5Mesh({ side, l1, l2, l3, l4 }: { side: "iran" | "israel"; l1: React.RefObject<THREE.PointLight>; l2: React.RefObject<THREE.PointLight>; l3: React.RefObject<THREE.PointLight>; l4: React.RefObject<THREE.PointLight> }) {
+function Tier5Mesh({ side, l1, l2, l3, l4 }: { side: "iran" | "israel"; l1: React.RefObject<THREE.PointLight | null>; l2: React.RefObject<THREE.PointLight | null>; l3: React.RefObject<THREE.PointLight | null>; l4: React.RefObject<THREE.PointLight | null> }) {
   const { body, wing, accent } = sideColors(side);
   return (
     <group rotation={[0, Math.PI, 0]}>
@@ -205,7 +205,7 @@ function Tier5Mesh({ side, l1, l2, l3, l4 }: { side: "iran" | "israel"; l1: Reac
 interface AirplaneMeshProps {
   side: "iran" | "israel";
   tier: PlaneTier;
-  lightRefs: React.RefObject<THREE.PointLight>[];
+  lightRefs: React.RefObject<THREE.PointLight | null>[];
 }
 function AirplaneMesh({ side, tier, lightRefs }: AirplaneMeshProps) {
   switch (tier) {
