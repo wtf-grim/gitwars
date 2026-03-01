@@ -448,12 +448,17 @@ interface Projectile {
 
 // ─── Combat constants ─────────────────────────────────────────────
 
-const FIRE_COOLDOWN: Record<PlaneTier, number> = { 1: 600, 2: 400, 3: 250, 4: 150, 5: 1200 };
+// Fire cooldown in ms — each tier fires faster than the previous
+const FIRE_COOLDOWN: Record<PlaneTier, number> = { 1: 420, 2: 260, 3: 150, 4: 80, 5: 1000 };
+// Damage per hit — higher tiers punch harder
 const TIER_DAMAGE:   Record<PlaneTier, number> = { 1: 20,  2: 35,  3: 50,  4: 70,  5: 150 };
-const BULLET_SPEED  = 750;
+// Per-tier bullet speed — higher tiers fire faster rounds
+const BULLET_SPEED_TIER: Record<PlaneTier, number> = { 1: 650, 2: 750, 3: 870, 4: 1020, 5: 0 };
 const BULLET_RANGE: Record<PlaneTier, number>  = { 1: 900, 2: 1200, 3: 1500, 4: 1900, 5: 0 };
+// Per-tier bullet cross-section scale (higher = fatter tracer = more visual weight)
+const BULLET_SCALE_TIER: Record<PlaneTier, number> = { 1: 0.7, 2: 0.9, 3: 1.1, 4: 1.35, 5: 1.0 };
 const BOMB_BLAST_RADIUS = 35;
-const MAX_BULLETS = 60;
+const MAX_BULLETS = 80;
 const MAX_BOMBS   = 8;
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -567,7 +572,7 @@ function spawnProjectile(
 
   const velocity = isBomb
     ? forward.clone().multiplyScalar(50).add(new THREE.Vector3(0, -8, 0))
-    : forward.clone().multiplyScalar(BULLET_SPEED);
+    : forward.clone().multiplyScalar(BULLET_SPEED_TIER[tier]);
 
   projectiles.current.push({
     id: _nextProjId++,
@@ -590,10 +595,12 @@ function useCombatSystem(
   bulletMeshRef: React.RefObject<THREE.InstancedMesh | null>,
   bombMeshRef: React.RefObject<THREE.InstancedMesh | null>,
   fireQueueRef: React.RefObject<boolean | null>,
+  muzzleFlashRef: React.RefObject<THREE.PointLight | null>,
   side: "iran" | "israel",
   tier: PlaneTier,
   onScoreChange: (s: ScoreState) => void,
-  onCrash: () => void
+  onCrash: () => void,
+  onFire: () => void
 ) {
   const projectiles   = useRef<Projectile[]>([]);
   const score         = useRef<ScoreState>({ iranDestroyed: 0, iranPoints: 0, israelDestroyed: 0, israelPoints: 0 });
@@ -639,6 +646,14 @@ function useCombatSystem(
       fireQueueRef.current = false;
       lastFired.current = nowMs;
       spawnProjectile(plane, tier, projectiles, bulletSlots.current, bombSlots.current);
+      // Muzzle flash — snap to plane position then spike intensity
+      const flash = muzzleFlashRef.current;
+      if (flash) {
+        flash.position.copy(plane.position);
+        flash.intensity = 55 + tier * 18;
+        setTimeout(() => { if (flash) flash.intensity = 0; }, 40);
+      }
+      onFire();
     }
 
     // ── Update projectiles ──────────────────────────────────────
@@ -694,7 +709,9 @@ function useCombatSystem(
           const dir = p.velocity.clone().normalize();
           _quat.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
         }
-        _mat.compose(p.position, _quat, new THREE.Vector3(1, 1, 1));
+        // Scale tracer by tier — higher tier = fatter, more visible round
+        const bs = p.type === "bullet" ? BULLET_SCALE_TIER[tier] : 1.0;
+        _mat.compose(p.position, _quat, new THREE.Vector3(bs, bs, bs));
         mesh.setMatrixAt(p.instanceSlot, _mat);
         mesh.instanceMatrix.needsUpdate = true;
       }
@@ -716,25 +733,37 @@ export interface CombatLayerProps {
   tier: PlaneTier;
   onScoreChange: (s: ScoreState) => void;
   onCrash: () => void;
+  onFire: () => void;
 }
 
-export function CombatLayer({ planeRef, fireQueueRef, side, tier, onScoreChange, onCrash }: CombatLayerProps) {
-  const bulletMeshRef = useRef<THREE.InstancedMesh>(null);
-  const bombMeshRef   = useRef<THREE.InstancedMesh>(null);
+export function CombatLayer({ planeRef, fireQueueRef, side, tier, onScoreChange, onCrash, onFire }: CombatLayerProps) {
+  const bulletMeshRef  = useRef<THREE.InstancedMesh>(null);
+  const bombMeshRef    = useRef<THREE.InstancedMesh>(null);
+  const muzzleFlashRef = useRef<THREE.PointLight | null>(null);
 
-  useCombatSystem(planeRef, bulletMeshRef, bombMeshRef, fireQueueRef, side, tier, onScoreChange, onCrash);
+  useCombatSystem(planeRef, bulletMeshRef, bombMeshRef, fireQueueRef, muzzleFlashRef, side, tier, onScoreChange, onCrash, onFire);
 
-  const bulletColor = side === "iran" ? "#ff6600" : "#88ccff";
+  const bulletColor  = side === "iran" ? "#ff6600" : "#88ccff";
+  const muzzleColor  = side === "iran" ? "#ffaa00" : "#aaddff";
 
   return (
     <>
-      {/* Bullet pool */}
+      {/* Muzzle flash — positioned via useCombatSystem when fired */}
+      <pointLight
+        ref={muzzleFlashRef}
+        color={muzzleColor}
+        intensity={0}
+        distance={90}
+        decay={2}
+      />
+
+      {/* Bullet pool — elongated tracer rod, highly emissive */}
       <instancedMesh ref={bulletMeshRef} args={[undefined, undefined, MAX_BULLETS]} frustumCulled={false}>
-        <boxGeometry args={[0.35, 0.35, 2.8]} />
+        <boxGeometry args={[0.28, 0.28, 3.6]} />
         <meshStandardMaterial
           color={bulletColor}
           emissive={bulletColor}
-          emissiveIntensity={5}
+          emissiveIntensity={8}
           toneMapped={false}
         />
       </instancedMesh>
@@ -956,20 +985,26 @@ function DamageHoles({ position, w, h, d, stage, id }: DamageHolesProps) {
   return <group>{holes}</group>;
 }
 
-// ─── BuildingDebris — tumbling pixel chunks with varied sizes ────────
+// ─── BuildingDebris — fine tumbling pixel chunks with 4 material types ──
 
-const DEBRIS_CAP = 64;
+const DEBRIS_CAP = 96; // per material type
 
+// Debris material types
+// 0 = building facade colour (painted concrete)
+// 1 = raw concrete / dark interior
+// 2 = rebar rod (thin elongated dark metal)
+// 3 = glass shard (thin, bright, blue-tinted)
 interface DebrisParticle {
   pos: THREE.Vector3;
   vel: THREE.Vector3;
-  axis: THREE.Vector3;   // tumble axis
-  spin: number;          // rad/s
-  angle: number;         // current rotation
-  size: number;          // base chunk size
+  axis: THREE.Vector3;
+  spin: number;
+  angle: number;
+  // Explicit per-axis scale so slabs, rods, shards look distinct
+  sx: number; sy: number; sz: number;
   life: number;
   maxLife: number;
-  dark: boolean;         // concrete/interior chunk vs building-colour chunk
+  kind: 0 | 1 | 2 | 3;
 }
 
 interface BuildingDebrisProps {
@@ -979,54 +1014,102 @@ interface BuildingDebrisProps {
 }
 
 function BuildingDebris({ position, color, triggerRef }: BuildingDebrisProps) {
-  const meshMain = useRef<THREE.InstancedMesh>(null); // building-colour chunks
-  const meshDark = useRef<THREE.InstancedMesh>(null); // concrete/interior chunks
-  const particles = useRef<DebrisParticle[]>([]);
-  const hasActive = useRef(false);
+  const meshFacade  = useRef<THREE.InstancedMesh>(null); // painted surface chunks
+  const meshConcrete= useRef<THREE.InstancedMesh>(null); // dark raw concrete
+  const meshRebar   = useRef<THREE.InstancedMesh>(null); // thin metal rods
+  const meshGlass   = useRef<THREE.InstancedMesh>(null); // bright glass shards
+  const particles   = useRef<DebrisParticle[]>([]);
+  const hasActive   = useRef(false);
 
   triggerRef.current = (stage: number, w: number, h: number, d: number) => {
-    const count = stage === 3 ? 56 : stage === 2 ? 30 : 16;
+    // More particles at higher stages — finer, denser burst
+    const count = stage === 3 ? 90 : stage === 2 ? 52 : 28;
     const px = position[0], pz = position[2];
 
-    // Pick a random face to blast from — gives directional scatter
-    const face = Math.floor(Math.random() * 4); // 0=front, 1=back, 2=left, 3=right
+    const face = Math.floor(Math.random() * 4);
     const fx = face === 2 ? -w / 2 : face === 3 ? w / 2 : 0;
     const fz = face === 0 ? d / 2  : face === 1 ? -d / 2 : 0;
 
     for (let i = 0; i < count; i++) {
-      // Spawn near the face surface, spread along it
-      const spreadX = face < 2 ? (Math.random() - 0.5) * w * 0.9 : (Math.random() * 0.4);
-      const spreadZ = face >= 2 ? (Math.random() - 0.5) * d * 0.9 : (Math.random() * 0.4);
-      const ry = 2 + Math.random() * (stage === 3 ? h * 0.95 : h * 0.55);
+      const spreadX = face < 2 ? (Math.random() - 0.5) * w * 0.95 : (Math.random() - 0.5) * 0.6;
+      const spreadZ = face >= 2 ? (Math.random() - 0.5) * d * 0.95 : (Math.random() - 0.5) * 0.6;
+      const ry = 1.5 + Math.random() * (stage === 3 ? h * 0.98 : h * 0.6);
 
-      // Velocity: outward from face + upward burst + random spread
-      const outX = fx !== 0 ? (fx / Math.abs(fx)) * (12 + Math.random() * 28) : (Math.random() - 0.5) * 20;
-      const outZ = fz !== 0 ? (fz / Math.abs(fz)) * (12 + Math.random() * 28) : (Math.random() - 0.5) * 20;
-      const lateralX = face < 2 ? (Math.random() - 0.5) * 22 : outX;
-      const lateralZ = face >= 2 ? (Math.random() - 0.5) * 22 : outZ;
-      const upward = 6 + Math.random() * (stage === 3 ? 45 : 25);
+      const outX = fx !== 0 ? (fx / Math.abs(fx)) * (10 + Math.random() * 32) : (Math.random() - 0.5) * 22;
+      const outZ = fz !== 0 ? (fz / Math.abs(fz)) * (10 + Math.random() * 32) : (Math.random() - 0.5) * 22;
+      const lateralX = face < 2 ? (Math.random() - 0.5) * 24 : outX;
+      const lateralZ = face >= 2 ? (Math.random() - 0.5) * 24 : outZ;
+      const upward   = 4 + Math.random() * (stage === 3 ? 48 : 28);
 
-      // Varied chunk sizes: small slivers, medium blocks, large slabs
-      const sizeRoll = Math.random();
-      const size = sizeRoll < 0.45 ? 0.5 + Math.random() * 0.5   // small
-                 : sizeRoll < 0.80 ? 1.0 + Math.random() * 0.8   // medium
-                 :                   1.8 + Math.random() * 1.0;   // large slab
+      // Determine chunk type — weighted distribution
+      const roll = Math.random();
+      let kind: 0|1|2|3;
+      if      (roll < 0.40) kind = 0; // facade (most common)
+      else if (roll < 0.70) kind = 1; // concrete
+      else if (roll < 0.87) kind = 2; // rebar rod
+      else                  kind = 3; // glass shard
 
-      const life = 1.6 + Math.random() * 1.2;
+      // Per-kind size — very fine granularity
+      let sx = 1, sy = 1, sz = 1;
+      if (kind === 0) {
+        // Painted facade: flat-ish tiles and brick chips, 3 sub-sizes
+        const r = Math.random();
+        if (r < 0.50) {
+          // Fine chip: ~0.18–0.35
+          const b = 0.18 + Math.random() * 0.17;
+          sx = b; sy = b * (0.4 + Math.random() * 0.4); sz = b;
+        } else if (r < 0.82) {
+          // Medium slab: ~0.4–0.75
+          const b = 0.4 + Math.random() * 0.35;
+          sx = b; sy = b * (0.25 + Math.random() * 0.35); sz = b * (0.6 + Math.random() * 0.5);
+        } else {
+          // Large facade chunk: ~0.8–1.3
+          const b = 0.8 + Math.random() * 0.5;
+          sx = b; sy = b * (0.2 + Math.random() * 0.3); sz = b * (0.7 + Math.random() * 0.6);
+        }
+      } else if (kind === 1) {
+        // Raw concrete: blockier, more cubic
+        const b = 0.22 + Math.random() * 0.55;
+        sx = b * (0.7 + Math.random() * 0.6);
+        sy = b * (0.7 + Math.random() * 0.6);
+        sz = b * (0.7 + Math.random() * 0.6);
+      } else if (kind === 2) {
+        // Rebar rod: very thin, long
+        const len = 0.8 + Math.random() * 1.4;
+        const thick = 0.04 + Math.random() * 0.07;
+        sx = thick; sy = len; sz = thick;
+      } else {
+        // Glass shard: thin flat triangular-ish sliver
+        const w2 = 0.12 + Math.random() * 0.35;
+        const h2 = 0.35 + Math.random() * 0.6;
+        sx = w2; sy = h2; sz = 0.03 + Math.random() * 0.04;
+      }
+
+      const life = kind === 3
+        ? 0.9 + Math.random() * 0.8   // glass disappears faster
+        : kind === 2
+          ? 2.2 + Math.random() * 1.0 // rebar stays longer
+          : 1.4 + Math.random() * 1.4;
+
       particles.current.push({
         pos: new THREE.Vector3(px + fx + spreadX, ry, pz + fz + spreadZ),
         vel: new THREE.Vector3(lateralX, upward, lateralZ),
         axis: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(),
-        spin: (Math.random() - 0.5) * 8,
+        spin: kind === 3
+          ? (Math.random() - 0.5) * 18 // glass spins fast
+          : kind === 2
+            ? (Math.random() - 0.5) * 5 // rebar spins slow
+            : (Math.random() - 0.5) * 10,
         angle: Math.random() * Math.PI * 2,
-        size,
+        sx, sy, sz,
         life,
         maxLife: life,
-        dark: Math.random() < 0.35, // 35% are concrete/rebar chunks
+        kind,
       });
     }
-    if (particles.current.length > DEBRIS_CAP) {
-      particles.current = particles.current.slice(-DEBRIS_CAP);
+    // Keep newest — cap total pool
+    if (particles.current.length > DEBRIS_CAP * 4) {
+      particles.current = particles.current.slice(-DEBRIS_CAP * 4);
     }
     hasActive.current = true;
   };
@@ -1038,50 +1121,55 @@ function BuildingDebris({ position, color, triggerRef }: BuildingDebrisProps) {
 
   useFrame((_, delta) => {
     if (!hasActive.current) return;
-    const mMain = meshMain.current;
-    const mDark = meshDark.current;
-    if (!mMain || !mDark) return;
+    const mF = meshFacade.current;
+    const mC = meshConcrete.current;
+    const mR = meshRebar.current;
+    const mG = meshGlass.current;
+    if (!mF || !mC || !mR || !mG) return;
     const dt = Math.min(delta, 0.05);
 
-    let mainIdx = 0, darkIdx = 0, anyAlive = false;
+    let fi = 0, ci = 0, ri = 0, gi = 0, anyAlive = false;
 
     for (const p of particles.current) {
       if (p.life <= 0) continue;
 
-      p.vel.y -= 60 * dt;
+      p.vel.y -= 55 * dt;
       p.pos.addScaledVector(p.vel, dt);
       if (p.pos.y < 0) {
         p.pos.y = 0;
-        p.vel.y *= -0.18;
-        p.vel.x *= 0.55;
-        p.vel.z *= 0.55;
-        p.spin  *= 0.4;
+        p.vel.y *= -0.15;
+        p.vel.x *= 0.5;
+        p.vel.z *= 0.5;
+        p.spin  *= 0.3;
       }
       p.angle += p.spin * dt;
       p.life  -= dt;
 
       const t = Math.max(0, p.life / p.maxLife);
-      // Chunks keep full size then shrink sharply in last 30% of life
-      const s = p.size * (t < 0.3 ? t / 0.3 : 1.0);
-      _sc.current.set(s, s * (0.6 + Math.random() * 0.4), s); // slightly flattened = slab-like
+      // Glass fades in last 50%, others last 25%
+      const shrinkThreshold = p.kind === 3 ? 0.5 : 0.25;
+      const scale = t < shrinkThreshold ? t / shrinkThreshold : 1.0;
+      _sc.current.set(p.sx * scale, p.sy * scale, p.sz * scale);
       _axis.current.copy(p.axis);
       _q.current.setFromAxisAngle(_axis.current, p.angle);
       _mat.current.compose(p.pos, _q.current, _sc.current);
 
-      if (!p.dark && mainIdx < DEBRIS_CAP) {
-        mMain.setMatrixAt(mainIdx++, _mat.current);
-      } else if (p.dark && darkIdx < DEBRIS_CAP) {
-        mDark.setMatrixAt(darkIdx++, _mat.current);
-      }
+      if      (p.kind === 0 && fi < DEBRIS_CAP) { mF.setMatrixAt(fi++, _mat.current); }
+      else if (p.kind === 1 && ci < DEBRIS_CAP) { mC.setMatrixAt(ci++, _mat.current); }
+      else if (p.kind === 2 && ri < DEBRIS_CAP) { mR.setMatrixAt(ri++, _mat.current); }
+      else if (p.kind === 3 && gi < DEBRIS_CAP) { mG.setMatrixAt(gi++, _mat.current); }
       anyAlive = true;
     }
 
-    // Zero remaining slots
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
-    for (let i = mainIdx; i < DEBRIS_CAP; i++) mMain.setMatrixAt(i, zero);
-    for (let i = darkIdx; i < DEBRIS_CAP; i++) mDark.setMatrixAt(i, zero);
-    mMain.instanceMatrix.needsUpdate = true;
-    mDark.instanceMatrix.needsUpdate = true;
+    for (let i = fi; i < DEBRIS_CAP; i++) mF.setMatrixAt(i, zero);
+    for (let i = ci; i < DEBRIS_CAP; i++) mC.setMatrixAt(i, zero);
+    for (let i = ri; i < DEBRIS_CAP; i++) mR.setMatrixAt(i, zero);
+    for (let i = gi; i < DEBRIS_CAP; i++) mG.setMatrixAt(i, zero);
+    mF.instanceMatrix.needsUpdate = true;
+    mC.instanceMatrix.needsUpdate = true;
+    mR.instanceMatrix.needsUpdate = true;
+    mG.instanceMatrix.needsUpdate = true;
     hasActive.current = anyAlive;
 
     if (!anyAlive) particles.current = [];
@@ -1089,15 +1177,34 @@ function BuildingDebris({ position, color, triggerRef }: BuildingDebrisProps) {
 
   return (
     <>
-      {/* Building-colour chunks */}
-      <instancedMesh ref={meshMain} args={[undefined, undefined, DEBRIS_CAP]} frustumCulled={false}>
+      {/* Facade — painted surface colour */}
+      <instancedMesh ref={meshFacade} args={[undefined, undefined, DEBRIS_CAP]} frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={color} roughness={0.8} />
+        <meshStandardMaterial color={color} roughness={0.75} />
       </instancedMesh>
-      {/* Concrete / dark interior chunks */}
-      <instancedMesh ref={meshDark} args={[undefined, undefined, DEBRIS_CAP]} frustumCulled={false}>
+      {/* Raw concrete — dark grey */}
+      <instancedMesh ref={meshConcrete} args={[undefined, undefined, DEBRIS_CAP]} frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />
         <meshStandardMaterial color="#3a3530" roughness={0.95} />
+      </instancedMesh>
+      {/* Rebar — thin dark metallic rods */}
+      <instancedMesh ref={meshRebar} args={[undefined, undefined, DEBRIS_CAP]} frustumCulled={false}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#1a1510" roughness={0.6} metalness={0.7} />
+      </instancedMesh>
+      {/* Glass shards — bright slightly emissive */}
+      <instancedMesh ref={meshGlass} args={[undefined, undefined, DEBRIS_CAP]} frustumCulled={false}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial
+          color="#c8e4ff"
+          emissive="#88bbee"
+          emissiveIntensity={0.6}
+          transparent
+          opacity={0.75}
+          roughness={0.05}
+          metalness={0.1}
+          depthWrite={false}
+        />
       </instancedMesh>
     </>
   );

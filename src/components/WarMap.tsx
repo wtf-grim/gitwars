@@ -1121,9 +1121,16 @@ function IsraelCities() {
 
 // ─── HUD overlay ─────────────────────────────────────────────────
 
-function HUD({ side, score }: { side: "iran" | "israel"; score: ScoreState }) {
+const TIER_NAMES: Record<number, string> = {
+  1: "SCOUT", 2: "FIGHTER", 3: "INTERCEPTOR", 4: "STEALTH", 5: "BOMBER"
+};
+
+function HUD({ side, score, tier }: { side: "iran" | "israel"; score: ScoreState; tier: number }) {
   const isIran = side === "iran";
   const [locked, setLocked] = useState(false);
+  // Flash the reticle briefly when shooting
+  const [firing, setFiring] = useState(false);
+  const firingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const onChange = () => setLocked(!!document.pointerLockElement);
@@ -1131,23 +1138,42 @@ function HUD({ side, score }: { side: "iran" | "israel"; score: ScoreState }) {
     return () => document.removeEventListener("pointerlockchange", onChange);
   }, []);
 
+  // Listen for fire events via a custom DOM event dispatched from handleFire
+  useEffect(() => {
+    const onFire = () => {
+      setFiring(true);
+      if (firingTimer.current) clearTimeout(firingTimer.current);
+      firingTimer.current = setTimeout(() => setFiring(false), 60);
+    };
+    window.addEventListener("gitwar-fire", onFire);
+    return () => window.removeEventListener("gitwar-fire", onFire);
+  }, []);
+
+  const accentColor = isIran ? "#44dd66" : "#44aaff";
+  const reticleColor = firing
+    ? (isIran ? "rgba(255,180,0,0.95)" : "rgba(100,220,255,0.95)")
+    : "rgba(255,255,255,0.82)";
+
   return (
     <div className="absolute inset-0 pointer-events-none z-10">
-      {/* Side badge + GITWAR title */}
+      {/* Side badge + tier */}
       <div className="absolute top-0 left-0 right-0 flex justify-between items-start p-4">
         <div
-          className="px-3 py-1 rounded text-xs font-bold text-white"
-          style={{ background: isIran ? "rgba(35,159,64,0.7)" : "rgba(0,56,184,0.7)", fontFamily: "sans-serif" }}
+          className="flex flex-col gap-0.5 px-3 py-1.5 rounded text-xs font-bold text-white"
+          style={{ background: isIran ? "rgba(35,159,64,0.75)" : "rgba(0,56,184,0.75)", fontFamily: "monospace" }}
         >
-          {isIran ? "🇮🇷 IRAN" : "🇮🇱 ISRAEL"}
+          <span>{isIran ? "🇮🇷 IRAN" : "🇮🇱 ISRAEL"}</span>
+          <span style={{ color: accentColor, fontSize: "0.65rem", letterSpacing: "0.1em" }}>
+            TIER {tier} · {TIER_NAMES[tier] ?? ""}
+          </span>
         </div>
-        <div className="text-white/50 text-xs" style={{ fontFamily: "sans-serif" }}>GITWAR</div>
+        <div style={{ fontFamily: "monospace", fontSize: "0.65rem", color: "rgba(255,255,255,0.35)", letterSpacing: "0.2em" }}>GITWAR</div>
       </div>
 
       {/* Score panel — top centre */}
       <div
         className="absolute top-3 left-1/2 -translate-x-1/2 flex gap-6 bg-black/55 border border-white/10 rounded-lg px-4 py-1.5"
-        style={{ fontFamily: "sans-serif" }}
+        style={{ fontFamily: "monospace" }}
       >
         <span className="text-xs font-bold" style={{ color: "#44ff88" }}>
           🇮🇷 {score.iranDestroyed} destroyed · {score.iranPoints} pts
@@ -1168,22 +1194,99 @@ function HUD({ side, score }: { side: "iran" | "israel"; score: ScoreState }) {
         </div>
       )}
 
-      {/* Crosshair — only when locked */}
+      {/* Military reticle — only when pointer-locked */}
       {locked && (
         <div
-          className="absolute"
-          style={{ top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 0, height: 0 }}
+          style={{
+            position: "absolute",
+            top: "50%", left: "50%",
+            transform: "translate(-50%,-50%)",
+            width: 0, height: 0,
+            transition: firing ? "none" : "opacity 0.1s",
+          }}
         >
-          {/* Horizontal */}
-          <div style={{ position: "absolute", width: 22, height: 2, background: "rgba(255,255,255,0.75)", top: -1, left: -11 }} />
-          {/* Vertical */}
-          <div style={{ position: "absolute", width: 2, height: 22, background: "rgba(255,255,255,0.75)", top: -11, left: -1 }} />
-          {/* Centre dot circle */}
-          <div style={{ position: "absolute", width: 8, height: 8, borderRadius: "50%", border: "1.5px solid rgba(255,255,255,0.55)", top: -4, left: -4 }} />
+          {/* ── Outer ring ── */}
+          <div style={{
+            position: "absolute",
+            width: 56, height: 56,
+            borderRadius: "50%",
+            border: `1.5px solid ${reticleColor.replace("0.82","0.28")}`,
+            top: -28, left: -28,
+          }} />
+
+          {/* ── Four bracketed corners at 45° ── */}
+          {[[-1,-1],[1,-1],[1,1],[-1,1]].map(([sx,sy], i) => (
+            <div key={i} style={{
+              position: "absolute",
+              width: 10, height: 10,
+              borderTop:    sy < 0 ? `2px solid ${reticleColor}` : "none",
+              borderBottom: sy > 0 ? `2px solid ${reticleColor}` : "none",
+              borderLeft:   sx < 0 ? `2px solid ${reticleColor}` : "none",
+              borderRight:  sx > 0 ? `2px solid ${reticleColor}` : "none",
+              top:  sy * 22 - 5,
+              left: sx * 22 - 5,
+            }} />
+          ))}
+
+          {/* ── Gap crosshair — 4 short lines with centre gap ── */}
+          {/* Left arm */}
+          <div style={{ position: "absolute", width: 12, height: 1.5, background: reticleColor, top: -0.75, left: -22 }} />
+          {/* Right arm */}
+          <div style={{ position: "absolute", width: 12, height: 1.5, background: reticleColor, top: -0.75, left: 10 }} />
+          {/* Top arm */}
+          <div style={{ position: "absolute", width: 1.5, height: 12, background: reticleColor, top: -22, left: -0.75 }} />
+          {/* Bottom arm */}
+          <div style={{ position: "absolute", width: 1.5, height: 12, background: reticleColor, top: 10, left: -0.75 }} />
+
+          {/* ── Centre precision dot ── */}
+          <div style={{
+            position: "absolute",
+            width: firing ? 5 : 3, height: firing ? 5 : 3,
+            borderRadius: "50%",
+            background: firing
+              ? (isIran ? "#ffdd00" : "#00eeff")
+              : reticleColor,
+            top: firing ? -2.5 : -1.5,
+            left: firing ? -2.5 : -1.5,
+            boxShadow: firing
+              ? `0 0 6px 2px ${isIran ? "#ff8800" : "#00ccff"}`
+              : "none",
+            transition: "all 0.04s",
+          }} />
+
+          {/* ── Tier tick marks on the ring (tier = number of ticks) ── */}
+          {Array.from({ length: tier }, (_, i) => {
+            const angle = (i / tier) * Math.PI * 2 - Math.PI / 2;
+            const r = 28;
+            const tx = Math.cos(angle) * r;
+            const ty = Math.sin(angle) * r;
+            return (
+              <div key={i} style={{
+                position: "absolute",
+                width: 3, height: 3,
+                borderRadius: "50%",
+                background: accentColor,
+                top: ty - 1.5,
+                left: tx - 1.5,
+                opacity: 0.7,
+              }} />
+            );
+          })}
+
+          {/* ── Speed lines — short dashes below reticle (immersion) ── */}
+          {[0,1,2].map(i => (
+            <div key={i} style={{
+              position: "absolute",
+              width: 1, height: 6 + i * 2,
+              background: `rgba(255,255,255,${0.12 - i * 0.03})`,
+              top: 34 + i * 7,
+              left: (i - 1) * 8 - 0.5,
+            }} />
+          ))}
         </div>
       )}
 
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/40 text-xs text-center" style={{ fontFamily: "sans-serif" }}>
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/40 text-xs text-center" style={{ fontFamily: "monospace" }}>
         Mouse — steer &nbsp;|&nbsp; Space — boost &nbsp;|&nbsp; Click — {locked ? "shoot" : "lock mouse"}
       </div>
 
@@ -1311,23 +1414,57 @@ export default function WarMap({ side, walletAddress: _walletAddress, tier }: Pr
   const explodePos                    = useRef(new THREE.Vector3());
   const respawnTimer                  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Screen shake on fire
+  const shakeRef = useRef(0); // shake magnitude, decays over time
+  const shakeFrameRef = useRef<number | null>(null);
+  const canvasWrapRef = useRef<HTMLDivElement>(null);
+
   const handleCrash = useCallback(() => {
     if (crashed) return;
-    // Capture current plane position for the explosion
     if (planeGroupRef.current) explodePos.current.copy(planeGroupRef.current.position);
     setCrashed(true);
     setExploding(true);
-    // Respawn after delay
     respawnTimer.current = setTimeout(() => {
       setExploding(false);
       setCrashed(false);
-      setRespawnKey(k => k + 1); // remount PlayerPlane at spawn position
+      setRespawnKey(k => k + 1);
     }, RESPAWN_DELAY * 1000);
   }, [crashed]);
 
+  // Called every time the plane fires — causes a brief screen shake
+  const handleFire = useCallback(() => {
+    // Shake intensity scales with tier (tier 4 kicks harder)
+    const intensity = [0, 1.2, 1.8, 2.4, 3.2, 0][tier] ?? 0;
+    shakeRef.current = Math.max(shakeRef.current, intensity);
+
+    const wrap = canvasWrapRef.current;
+    if (!wrap) return;
+
+    const tick = () => {
+      const s = shakeRef.current;
+      if (s < 0.05) {
+        wrap.style.transform = "";
+        shakeFrameRef.current = null;
+        shakeRef.current = 0;
+        return;
+      }
+      const dx = (Math.random() - 0.5) * s * 2;
+      const dy = (Math.random() - 0.5) * s * 2;
+      wrap.style.transform = `translate(${dx}px,${dy}px)`;
+      shakeRef.current *= 0.78; // decay
+      shakeFrameRef.current = requestAnimationFrame(tick);
+    };
+
+    if (!shakeFrameRef.current) {
+      shakeFrameRef.current = requestAnimationFrame(tick);
+    }
+    // Notify HUD reticle to flash
+    window.dispatchEvent(new Event("gitwar-fire"));
+  }, [tier]);
+
   return (
     <div className="relative w-full h-full">
-      <HUD side={side} score={score} />
+      <HUD side={side} score={score} tier={tier} />
 
       {/* Respawn countdown overlay */}
       {crashed && (
@@ -1341,6 +1478,8 @@ export default function WarMap({ side, walletAddress: _walletAddress, tier }: Pr
         </div>
       )}
 
+      {/* Canvas wrapper — receives CSS translate for screen shake */}
+      <div ref={canvasWrapRef} style={{ position: "absolute", inset: 0 }}>
       <Canvas
         camera={{ position: [0, 120, 300], fov: 65, near: 0.5, far: 3000 }}
         gl={{ antialias: false, powerPreference: "high-performance" }}
@@ -1400,8 +1539,10 @@ export default function WarMap({ side, walletAddress: _walletAddress, tier }: Pr
           tier={tier}
           onScoreChange={setScore}
           onCrash={handleCrash}
+          onFire={handleFire}
         />
       </Canvas>
+      </div>
     </div>
   );
 }
