@@ -387,6 +387,7 @@ interface BuildingVisualRef {
   matRef: React.RefObject<THREE.MeshStandardMaterial | null>;
   groupRef: React.RefObject<THREE.Group | null>;
   setSmoke: (v: boolean) => void;
+  setStage: (s: 0|1|2|3) => void;
 }
 
 export const buildingRefs = new Map<number, BuildingVisualRef>();
@@ -515,7 +516,7 @@ function applyDamage(
 function _applyBuildingVisuals(id: number, stage: 0|1|2|3, color: string, w: number, h: number, d: number) {
   const refs = buildingRefs.get(id);
   if (!refs) return;
-  // Trigger pixel debris burst — no colour change, no squishing
+  refs.setStage(stage);
   const trigger = debrisTriggers.get(id);
   if (trigger) trigger(stage, w, h, d);
   if (stage >= 2) refs.setSmoke(true);
@@ -760,20 +761,20 @@ interface DamageableBuildingProps {
 export function DamageableBuilding({ def }: DamageableBuildingProps) {
   const groupRef   = useRef<THREE.Group>(null);
   const bodyMatRef = useRef<THREE.MeshStandardMaterial>(null);
-  const [showSmoke, setShowSmoke] = useState(false);
+  const [showSmoke, setShowSmoke]   = useState(false);
+  const [stage, setStage]           = useState<0|1|2|3>(0);
 
-  // Debris trigger ref — stable callback registered in debrisTriggers map
   const debrisTriggerRef = useRef<(stage: number, w: number, h: number, d: number) => void>(null!);
 
-  // Register visual refs so applyDamage can push changes imperatively
   useEffect(() => {
     buildingRefs.set(def.id, {
-      matRef: bodyMatRef as React.RefObject<THREE.MeshStandardMaterial>,
-      groupRef: groupRef as React.RefObject<THREE.Group>,
+      matRef:   bodyMatRef as React.RefObject<THREE.MeshStandardMaterial>,
+      groupRef: groupRef   as React.RefObject<THREE.Group>,
       setSmoke: setShowSmoke,
+      setStage: setStage as (s: 0|1|2|3) => void,
     });
-    debrisTriggers.set(def.id, (stage, w, h, d) => {
-      if (debrisTriggerRef.current) debrisTriggerRef.current(stage, w, h, d);
+    debrisTriggers.set(def.id, (s, w, h, d) => {
+      if (debrisTriggerRef.current) debrisTriggerRef.current(s, w, h, d);
     });
     return () => {
       buildingRefs.delete(def.id);
@@ -784,14 +785,25 @@ export function DamageableBuilding({ def }: DamageableBuildingProps) {
 
   return (
     <group ref={groupRef}>
-      <Building
+      {/* Hide the original building at stage 3 — DamageHoles renders the stump */}
+      {stage < 3 && (
+        <Building
+          position={def.position}
+          w={def.w}
+          h={def.h}
+          d={def.d}
+          color={def.color}
+          windowColor={def.windowColor}
+          bodyMatRef={bodyMatRef}
+        />
+      )}
+      <DamageHoles
         position={def.position}
         w={def.w}
         h={def.h}
         d={def.d}
-        color={def.color}
-        windowColor={def.windowColor}
-        bodyMatRef={bodyMatRef}
+        stage={stage}
+        id={def.id}
       />
       {showSmoke && <SmokeOverlay position={def.position} h={def.h} />}
       <BuildingDebris
@@ -824,15 +836,140 @@ function SmokeOverlay({ position, h }: { position: [number, number, number]; h: 
   );
 }
 
-// ─── BuildingDebris — pixel chunks that fly out when building is hit ─
+// ─── DamageHoles — dark recessed voids that appear on the building ───
+// Seeded positions so each building has a deterministic hole pattern
 
-const DEBRIS_CAP = 48; // max live particles per building
+function seededRand(seed: number) {
+  // Simple LCG
+  let s = seed;
+  return () => { s = (s * 1664525 + 1013904223) & 0xffffffff; return (s >>> 0) / 0xffffffff; };
+}
+
+interface DamageHolesProps {
+  position: [number, number, number];
+  w: number; h: number; d: number;
+  stage: 0|1|2|3;
+  id: number;
+}
+
+function DamageHoles({ position, w, h, d, stage, id }: DamageHolesProps) {
+  if (stage === 0) return null;
+
+  const rand = seededRand(id * 7919);
+  const px = position[0], py = position[1] + h / 2, pz = position[2];
+
+  // Generate hole positions — more holes per higher stage
+  const holeCount = stage === 3 ? 18 : stage === 2 ? 10 : 5;
+  const holes: JSX.Element[] = [];
+
+  for (let i = 0; i < holeCount; i++) {
+    // Random position on one of the 4 faces
+    const face = Math.floor(rand() * 4);
+    const holeW = 1.5 + rand() * (stage === 3 ? 4.5 : 2.5);
+    const holeH = 1.5 + rand() * (stage === 3 ? 5.0 : 3.0);
+
+    let hx = 0, hy = 0, hz = 0;
+    if (face === 0) {      // front
+      hx = (rand() - 0.5) * (w - holeW - 1);
+      hy = py + (rand() - 0.5) * (h - holeH - 2);
+      hz = pz + d / 2 - 0.3;
+    } else if (face === 1) { // back
+      hx = (rand() - 0.5) * (w - holeW - 1);
+      hy = py + (rand() - 0.5) * (h - holeH - 2);
+      hz = pz - d / 2 + 0.3;
+    } else if (face === 2) { // left
+      hx = px - w / 2 + 0.3;
+      hy = py + (rand() - 0.5) * (h - holeH - 2);
+      hz = (rand() - 0.5) * (d - holeW - 1) + pz;
+    } else {               // right
+      hx = px + w / 2 - 0.3;
+      hy = py + (rand() - 0.5) * (h - holeH - 2);
+      hz = (rand() - 0.5) * (d - holeW - 1) + pz;
+    }
+
+    // Depth of the hole punched into the wall
+    const depth = 1.2 + rand() * 1.5;
+    const rotation: [number, number, number] = face <= 1 ? [0, 0, 0] : [0, Math.PI / 2, 0];
+    const holeSize: [number, number, number] = [
+      face <= 1 ? holeW : depth,
+      holeH,
+      face <= 1 ? depth : holeW,
+    ];
+
+    holes.push(
+      <mesh key={i} position={[hx, hy, hz]} rotation={rotation}>
+        <boxGeometry args={holeSize} />
+        <meshStandardMaterial color="#0d0a08" roughness={1} />
+      </mesh>
+    );
+
+    // Exposed rebar / broken interior — small dark slab protruding
+    if (rand() < 0.6) {
+      holes.push(
+        <mesh key={`r${i}`} position={[hx + (rand() - 0.5) * holeW * 0.5, hy + (rand() - 0.5) * holeH * 0.5, hz]}>
+          <boxGeometry args={[0.3 + rand() * 0.5, holeH * 0.8, 0.3 + rand() * 0.5]} />
+          <meshStandardMaterial color="#1a1410" roughness={1} />
+        </mesh>
+      );
+    }
+  }
+
+  // Stage 3: collapse — body shrinks to a stump, jagged top edge
+  if (stage === 3) {
+    const stumpH = h * 0.28;
+    return (
+      <group>
+        {/* Replace building body with a low stump */}
+        <mesh position={[px, stumpH / 2, pz]}>
+          <boxGeometry args={[w, stumpH, d]} />
+          <meshStandardMaterial color="#2a2420" roughness={1} />
+        </mesh>
+        {/* Jagged broken top chunks */}
+        {Array.from({ length: 6 }, (_, ji) => {
+          const jx = px + (seededRand(id + ji * 13)() - 0.5) * (w * 0.7);
+          const jz = pz + (seededRand(id + ji * 17)() - 0.5) * (d * 0.7);
+          const jh = stumpH + seededRand(id + ji * 5)() * h * 0.18;
+          const jw = 1.5 + seededRand(id + ji * 3)() * 3;
+          return (
+            <mesh key={ji} position={[jx, jh, jz]}>
+              <boxGeometry args={[jw, 2 + seededRand(id + ji)() * 4, jw * 0.8]} />
+              <meshStandardMaterial color="#1e1a16" roughness={1} />
+            </mesh>
+          );
+        })}
+        {/* Rubble pile at base */}
+        {Array.from({ length: 8 }, (_, ri) => {
+          const r = seededRand(id + ri * 11);
+          return (
+            <mesh key={`rb${ri}`} position={[px + (r() - 0.5) * w * 1.1, 0.4 + r() * 0.8, pz + (r() - 0.5) * d * 1.1]}
+              rotation={[r() * 0.8, r() * Math.PI, r() * 0.6]}>
+              <boxGeometry args={[1 + r() * 3, 0.5 + r() * 1.5, 1 + r() * 2.5]} />
+              <meshStandardMaterial color="#2e2820" roughness={1} />
+            </mesh>
+          );
+        })}
+        {holes}
+      </group>
+    );
+  }
+
+  return <group>{holes}</group>;
+}
+
+// ─── BuildingDebris — tumbling pixel chunks with varied sizes ────────
+
+const DEBRIS_CAP = 64;
 
 interface DebrisParticle {
   pos: THREE.Vector3;
   vel: THREE.Vector3;
+  axis: THREE.Vector3;   // tumble axis
+  spin: number;          // rad/s
+  angle: number;         // current rotation
+  size: number;          // base chunk size
   life: number;
   maxLife: number;
+  dark: boolean;         // concrete/interior chunk vs building-colour chunk
 }
 
 interface BuildingDebrisProps {
@@ -842,27 +979,50 @@ interface BuildingDebrisProps {
 }
 
 function BuildingDebris({ position, color, triggerRef }: BuildingDebrisProps) {
-  const meshRef    = useRef<THREE.InstancedMesh>(null);
-  const particles  = useRef<DebrisParticle[]>([]);
-  const hasActive  = useRef(false);
+  const meshMain = useRef<THREE.InstancedMesh>(null); // building-colour chunks
+  const meshDark = useRef<THREE.InstancedMesh>(null); // concrete/interior chunks
+  const particles = useRef<DebrisParticle[]>([]);
+  const hasActive = useRef(false);
 
-  // Set the trigger callback so the parent can call it imperatively
   triggerRef.current = (stage: number, w: number, h: number, d: number) => {
-    const count = stage === 3 ? 40 : stage === 2 ? 22 : 12;
+    const count = stage === 3 ? 56 : stage === 2 ? 30 : 16;
     const px = position[0], pz = position[2];
+
+    // Pick a random face to blast from — gives directional scatter
+    const face = Math.floor(Math.random() * 4); // 0=front, 1=back, 2=left, 3=right
+    const fx = face === 2 ? -w / 2 : face === 3 ? w / 2 : 0;
+    const fz = face === 0 ? d / 2  : face === 1 ? -d / 2 : 0;
+
     for (let i = 0; i < count; i++) {
-      const rx = (Math.random() - 0.5) * w * 1.2;
-      const ry = Math.random() * (stage === 3 ? h : h * 0.6) + 2;
-      const rz = (Math.random() - 0.5) * d * 1.2;
-      const speed  = 18 + Math.random() * (stage === 3 ? 55 : 30);
-      const angle  = Math.random() * Math.PI * 2;
-      const upward = 8 + Math.random() * 28;
-      const life   = 1.4 + Math.random() * 1.0;
+      // Spawn near the face surface, spread along it
+      const spreadX = face < 2 ? (Math.random() - 0.5) * w * 0.9 : (Math.random() * 0.4);
+      const spreadZ = face >= 2 ? (Math.random() - 0.5) * d * 0.9 : (Math.random() * 0.4);
+      const ry = 2 + Math.random() * (stage === 3 ? h * 0.95 : h * 0.55);
+
+      // Velocity: outward from face + upward burst + random spread
+      const outX = fx !== 0 ? (fx / Math.abs(fx)) * (12 + Math.random() * 28) : (Math.random() - 0.5) * 20;
+      const outZ = fz !== 0 ? (fz / Math.abs(fz)) * (12 + Math.random() * 28) : (Math.random() - 0.5) * 20;
+      const lateralX = face < 2 ? (Math.random() - 0.5) * 22 : outX;
+      const lateralZ = face >= 2 ? (Math.random() - 0.5) * 22 : outZ;
+      const upward = 6 + Math.random() * (stage === 3 ? 45 : 25);
+
+      // Varied chunk sizes: small slivers, medium blocks, large slabs
+      const sizeRoll = Math.random();
+      const size = sizeRoll < 0.45 ? 0.5 + Math.random() * 0.5   // small
+                 : sizeRoll < 0.80 ? 1.0 + Math.random() * 0.8   // medium
+                 :                   1.8 + Math.random() * 1.0;   // large slab
+
+      const life = 1.6 + Math.random() * 1.2;
       particles.current.push({
-        pos: new THREE.Vector3(px + rx, ry, pz + rz),
-        vel: new THREE.Vector3(Math.cos(angle) * speed, upward, Math.sin(angle) * speed),
+        pos: new THREE.Vector3(px + fx + spreadX, ry, pz + fz + spreadZ),
+        vel: new THREE.Vector3(lateralX, upward, lateralZ),
+        axis: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(),
+        spin: (Math.random() - 0.5) * 8,
+        angle: Math.random() * Math.PI * 2,
+        size,
         life,
         maxLife: life,
+        dark: Math.random() < 0.35, // 35% are concrete/rebar chunks
       });
     }
     if (particles.current.length > DEBRIS_CAP) {
@@ -871,44 +1031,75 @@ function BuildingDebris({ position, color, triggerRef }: BuildingDebrisProps) {
     hasActive.current = true;
   };
 
-  const _mat   = useRef(new THREE.Matrix4());
-  const _scale = useRef(new THREE.Vector3());
-  const _q     = useRef(new THREE.Quaternion());
+  const _mat  = useRef(new THREE.Matrix4());
+  const _q    = useRef(new THREE.Quaternion());
+  const _axis = useRef(new THREE.Vector3());
+  const _sc   = useRef(new THREE.Vector3());
 
   useFrame((_, delta) => {
     if (!hasActive.current) return;
-    const mesh = meshRef.current;
-    if (!mesh) return;
+    const mMain = meshMain.current;
+    const mDark = meshDark.current;
+    if (!mMain || !mDark) return;
     const dt = Math.min(delta, 0.05);
 
-    let anyAlive = false;
-    for (let i = 0; i < DEBRIS_CAP; i++) {
-      const p = particles.current[i];
-      if (!p || p.life <= 0) {
-        _mat.current.makeScale(0, 0, 0);
-        mesh.setMatrixAt(i, _mat.current);
-        continue;
-      }
-      p.vel.y -= 55 * dt;
+    let mainIdx = 0, darkIdx = 0, anyAlive = false;
+
+    for (const p of particles.current) {
+      if (p.life <= 0) continue;
+
+      p.vel.y -= 60 * dt;
       p.pos.addScaledVector(p.vel, dt);
-      if (p.pos.y < 0) { p.pos.y = 0; p.vel.y *= -0.25; p.vel.x *= 0.6; p.vel.z *= 0.6; }
-      p.life -= dt;
+      if (p.pos.y < 0) {
+        p.pos.y = 0;
+        p.vel.y *= -0.18;
+        p.vel.x *= 0.55;
+        p.vel.z *= 0.55;
+        p.spin  *= 0.4;
+      }
+      p.angle += p.spin * dt;
+      p.life  -= dt;
+
       const t = Math.max(0, p.life / p.maxLife);
-      const s = 0.5 + t * 1.0; // big chunks that shrink as they age
-      _scale.current.set(s, s, s);
-      _mat.current.compose(p.pos, _q.current, _scale.current);
-      mesh.setMatrixAt(i, _mat.current);
+      // Chunks keep full size then shrink sharply in last 30% of life
+      const s = p.size * (t < 0.3 ? t / 0.3 : 1.0);
+      _sc.current.set(s, s * (0.6 + Math.random() * 0.4), s); // slightly flattened = slab-like
+      _axis.current.copy(p.axis);
+      _q.current.setFromAxisAngle(_axis.current, p.angle);
+      _mat.current.compose(p.pos, _q.current, _sc.current);
+
+      if (!p.dark && mainIdx < DEBRIS_CAP) {
+        mMain.setMatrixAt(mainIdx++, _mat.current);
+      } else if (p.dark && darkIdx < DEBRIS_CAP) {
+        mDark.setMatrixAt(darkIdx++, _mat.current);
+      }
       anyAlive = true;
     }
-    mesh.instanceMatrix.needsUpdate = true;
+
+    // Zero remaining slots
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    for (let i = mainIdx; i < DEBRIS_CAP; i++) mMain.setMatrixAt(i, zero);
+    for (let i = darkIdx; i < DEBRIS_CAP; i++) mDark.setMatrixAt(i, zero);
+    mMain.instanceMatrix.needsUpdate = true;
+    mDark.instanceMatrix.needsUpdate = true;
     hasActive.current = anyAlive;
+
+    if (!anyAlive) particles.current = [];
   });
 
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, DEBRIS_CAP]} frustumCulled={false}>
-      <boxGeometry args={[1.6, 1.6, 1.6]} />
-      <meshStandardMaterial color={color} roughness={0.85} />
-    </instancedMesh>
+    <>
+      {/* Building-colour chunks */}
+      <instancedMesh ref={meshMain} args={[undefined, undefined, DEBRIS_CAP]} frustumCulled={false}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color={color} roughness={0.8} />
+      </instancedMesh>
+      {/* Concrete / dark interior chunks */}
+      <instancedMesh ref={meshDark} args={[undefined, undefined, DEBRIS_CAP]} frustumCulled={false}>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#3a3530" roughness={0.95} />
+      </instancedMesh>
+    </>
   );
 }
 
