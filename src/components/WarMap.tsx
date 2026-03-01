@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useRef, useState, useEffect } from "react";
-import { Canvas } from "@react-three/fiber";
+import React, { useRef, useState, useCallback } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import PlayerPlane from "./PlayerPlane";
 import type { PlaneTier } from "./PlaneSelectModal";
@@ -1219,6 +1219,73 @@ function IsraelDamageableBuildings() {
   );
 }
 
+// ─── PlaneExplosion — pixel debris burst when plane hits a building ─
+
+const EXPL_COUNT = 60;
+
+interface ExplParticle { pos: THREE.Vector3; vel: THREE.Vector3; life: number; maxLife: number; }
+
+function PlaneExplosion({ position, onDone }: { position: THREE.Vector3; onDone: () => void }) {
+  const meshRef   = useRef<THREE.InstancedMesh>(null);
+  const particles = useRef<ExplParticle[]>([]);
+  const done      = useRef(false);
+  const _mat      = useRef(new THREE.Matrix4());
+  const _scale    = useRef(new THREE.Vector3());
+  const _q        = useRef(new THREE.Quaternion());
+
+  // Spawn particles once on mount
+  useState(() => {
+    for (let i = 0; i < EXPL_COUNT; i++) {
+      const speed  = 30 + Math.random() * 80;
+      const theta  = Math.random() * Math.PI * 2;
+      const phi    = Math.random() * Math.PI;
+      const life   = 1.0 + Math.random() * 1.2;
+      particles.current.push({
+        pos: position.clone().add(new THREE.Vector3(
+          (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 6
+        )),
+        vel: new THREE.Vector3(
+          Math.sin(phi) * Math.cos(theta) * speed,
+          Math.cos(phi) * speed * 0.6 + 10,
+          Math.sin(phi) * Math.sin(theta) * speed,
+        ),
+        life, maxLife: life,
+      });
+    }
+  });
+
+  useFrame((_, delta) => {
+    if (done.current) return;
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    const dt = Math.min(delta, 0.05);
+    let anyAlive = false;
+    for (let i = 0; i < EXPL_COUNT; i++) {
+      const p = particles.current[i];
+      if (!p || p.life <= 0) { _mat.current.makeScale(0,0,0); mesh.setMatrixAt(i, _mat.current); continue; }
+      p.vel.y -= 50 * dt;
+      p.pos.addScaledVector(p.vel, dt);
+      if (p.pos.y < 0) { p.pos.y = 0; p.vel.y *= -0.2; p.vel.x *= 0.5; p.vel.z *= 0.5; }
+      p.life -= dt;
+      const t = Math.max(0, p.life / p.maxLife);
+      const s = t * 2.5;
+      _scale.current.set(s, s, s);
+      _mat.current.compose(p.pos, _q.current, _scale.current);
+      mesh.setMatrixAt(i, _mat.current);
+      anyAlive = true;
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (!anyAlive) { done.current = true; onDone(); }
+  });
+
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, EXPL_COUNT]} frustumCulled={false}>
+      <boxGeometry args={[1, 1, 1]} />
+      <meshStandardMaterial color="#ff6600" emissive="#ff3300" emissiveIntensity={3} toneMapped={false} />
+    </instancedMesh>
+  );
+}
+
 // ─── Main WarMap ─────────────────────────────────────────────────
 
 interface Props {
@@ -1227,17 +1294,53 @@ interface Props {
   tier: PlaneTier;
 }
 
+const RESPAWN_DELAY = 3; // seconds
+
 export default function WarMap({ side, walletAddress: _walletAddress, tier }: Props) {
-  const planeGroupRef = useRef<THREE.Group>(null);
-  const fireQueueRef  = useRef<boolean>(false);
+  const planeGroupRef  = useRef<THREE.Group>(null);
+  const fireQueueRef   = useRef<boolean>(false);
   const [score, setScore] = useState<ScoreState>({
     iranDestroyed: 0, iranPoints: 0,
     israelDestroyed: 0, israelPoints: 0,
   });
 
+  // Crash / respawn state
+  const [crashed, setCrashed]         = useState(false);
+  const [exploding, setExploding]     = useState(false);
+  const [respawnKey, setRespawnKey]   = useState(0);
+  const explodePos                    = useRef(new THREE.Vector3());
+  const respawnTimer                  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleCrash = useCallback(() => {
+    if (crashed) return;
+    // Capture current plane position for the explosion
+    if (planeGroupRef.current) explodePos.current.copy(planeGroupRef.current.position);
+    setCrashed(true);
+    setExploding(true);
+    // Respawn after delay
+    respawnTimer.current = setTimeout(() => {
+      setExploding(false);
+      setCrashed(false);
+      setRespawnKey(k => k + 1); // remount PlayerPlane at spawn position
+    }, RESPAWN_DELAY * 1000);
+  }, [crashed]);
+
   return (
     <div className="relative w-full h-full">
       <HUD side={side} score={score} />
+
+      {/* Respawn countdown overlay */}
+      {crashed && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+          <div className="text-center">
+            <div className="text-white text-4xl font-black mb-2" style={{ textShadow: "0 0 20px #ff4400" }}>
+              💥 SHOT DOWN
+            </div>
+            <div className="text-orange-300 text-lg">Respawning...</div>
+          </div>
+        </div>
+      )}
+
       <Canvas
         camera={{ position: [0, 120, 300], fov: 65, near: 0.5, far: 3000 }}
         gl={{ antialias: false, powerPreference: "high-performance" }}
@@ -1280,13 +1383,23 @@ export default function WarMap({ side, walletAddress: _walletAddress, tier }: Pr
         <IranFlag position={[-600, 0, -300]} />
         <IsraelFlag position={[600, 0, -300]} />
 
-        <PlayerPlane side={side} tier={tier} groupRef={planeGroupRef} fireQueueRef={fireQueueRef} />
+        {/* Plane — hidden while crashed, remounted on respawn */}
+        {!crashed && (
+          <PlayerPlane key={respawnKey} side={side} tier={tier} groupRef={planeGroupRef} fireQueueRef={fireQueueRef} />
+        )}
+
+        {/* Explosion debris at crash site */}
+        {exploding && (
+          <PlaneExplosion position={explodePos.current} onDone={() => setExploding(false)} />
+        )}
+
         <CombatLayer
           planeRef={planeGroupRef}
           fireQueueRef={fireQueueRef}
           side={side}
           tier={tier}
           onScoreChange={setScore}
+          onCrash={handleCrash}
         />
       </Canvas>
     </div>

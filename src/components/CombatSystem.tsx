@@ -387,7 +387,6 @@ interface BuildingVisualRef {
   matRef: React.RefObject<THREE.MeshStandardMaterial | null>;
   groupRef: React.RefObject<THREE.Group | null>;
   setSmoke: (v: boolean) => void;
-  setRubble: (v: boolean) => void;
 }
 
 export const buildingRefs = new Map<number, BuildingVisualRef>();
@@ -509,30 +508,17 @@ function applyDamage(
 
   // Push visual changes imperatively — no per-frame polling needed
   if (entry.stage !== prevStage) {
-    _applyBuildingVisuals(rec.id, entry.stage, rec.color);
+    _applyBuildingVisuals(rec.id, entry.stage, rec.color, rec.w, rec.h, rec.d);
   }
 }
 
-function _applyBuildingVisuals(id: number, stage: 0|1|2|3, color: string) {
+function _applyBuildingVisuals(id: number, stage: 0|1|2|3, color: string, w: number, h: number, d: number) {
   const refs = buildingRefs.get(id);
   if (!refs) return;
-  const mat = refs.matRef.current;
-  const grp = refs.groupRef.current;
-  if (!mat) return;
-
-  if (stage === 1) {
-    mat.color.setStyle(darkenHex(color, 0.2));
-  } else if (stage === 2) {
-    mat.color.setStyle(darkenHex(color, 0.45));
-    refs.setSmoke(true);
-  } else if (stage === 3) {
-    mat.color.setStyle("#1e1a18");
-    mat.emissive.setStyle("#110800");
-    mat.emissiveIntensity = 0.3;
-    if (grp) grp.scale.y = 0.4;
-    refs.setSmoke(true);
-    refs.setRubble(true);
-  }
+  // Trigger pixel debris burst — no colour change, no squishing
+  const trigger = debrisTriggers.get(id);
+  if (trigger) trigger(stage, w, h, d);
+  if (stage >= 2) refs.setSmoke(true);
 }
 
 // ─── Bomb blast ───────────────────────────────────────────────────
@@ -605,7 +591,8 @@ function useCombatSystem(
   fireQueueRef: React.RefObject<boolean | null>,
   side: "iran" | "israel",
   tier: PlaneTier,
-  onScoreChange: (s: ScoreState) => void
+  onScoreChange: (s: ScoreState) => void,
+  onCrash: () => void
 ) {
   const projectiles   = useRef<Projectile[]>([]);
   const score         = useRef<ScoreState>({ iranDestroyed: 0, iranPoints: 0, israelDestroyed: 0, israelPoints: 0 });
@@ -614,16 +601,36 @@ function useCombatSystem(
   const bombSlots     = useRef<boolean[]>(Array(MAX_BOMBS).fill(false));
   const _pBox         = useRef(new THREE.Box3());
   const _pSize        = new THREE.Vector3(0.6, 0.6, 2.5);
+  const _planeBox     = useRef(new THREE.Box3());
+  const _planeSize    = new THREE.Vector3(12, 4, 12);
+  const crashed       = useRef(false);
 
   void side; // side used for future PvP targeting, available in scope
 
   useFrame(({ clock }, delta) => {
     const dt = Math.min(delta, 0.05);
     const plane = planeRef.current;
-    if (!plane) return;
+    if (!plane) {
+      // Plane is unmounted (respawning) — reset crash lock for the new plane
+      crashed.current = false;
+      return;
+    }
 
     const bulletMesh = bulletMeshRef.current;
     const bombMesh   = bombMeshRef.current;
+
+    // ── Plane-building crash detection ──────────────────────────
+    if (!crashed.current) {
+      _planeBox.current.setFromCenterAndSize(plane.position, _planeSize);
+      for (const id of _nearbyBuildingIds(plane.position)) {
+        const rec = _registryById.get(id);
+        if (rec && !damageMap.get(rec.id)?.destroyed && rec.box.intersectsBox(_planeBox.current)) {
+          crashed.current = true;
+          onCrash();
+          break;
+        }
+      }
+    }
 
     // ── Fire ────────────────────────────────────────────────────
     const nowMs = clock.getElapsedTime() * 1000;
@@ -707,13 +714,14 @@ export interface CombatLayerProps {
   side: "iran" | "israel";
   tier: PlaneTier;
   onScoreChange: (s: ScoreState) => void;
+  onCrash: () => void;
 }
 
-export function CombatLayer({ planeRef, fireQueueRef, side, tier, onScoreChange }: CombatLayerProps) {
+export function CombatLayer({ planeRef, fireQueueRef, side, tier, onScoreChange, onCrash }: CombatLayerProps) {
   const bulletMeshRef = useRef<THREE.InstancedMesh>(null);
   const bombMeshRef   = useRef<THREE.InstancedMesh>(null);
 
-  useCombatSystem(planeRef, bulletMeshRef, bombMeshRef, fireQueueRef, side, tier, onScoreChange);
+  useCombatSystem(planeRef, bulletMeshRef, bombMeshRef, fireQueueRef, side, tier, onScoreChange, onCrash);
 
   const bulletColor = side === "iran" ? "#ff6600" : "#88ccff";
 
@@ -752,19 +760,25 @@ interface DamageableBuildingProps {
 export function DamageableBuilding({ def }: DamageableBuildingProps) {
   const groupRef   = useRef<THREE.Group>(null);
   const bodyMatRef = useRef<THREE.MeshStandardMaterial>(null);
-  const [showRubble, setShowRubble] = useState(false);
-  const [showSmoke, setShowSmoke]   = useState(false);
+  const [showSmoke, setShowSmoke] = useState(false);
+
+  // Debris trigger ref — stable callback registered in debrisTriggers map
+  const debrisTriggerRef = useRef<(stage: number, w: number, h: number, d: number) => void>(null!);
 
   // Register visual refs so applyDamage can push changes imperatively
-  // No useFrame needed — zero per-frame polling for 302 buildings
   useEffect(() => {
     buildingRefs.set(def.id, {
       matRef: bodyMatRef as React.RefObject<THREE.MeshStandardMaterial>,
       groupRef: groupRef as React.RefObject<THREE.Group>,
       setSmoke: setShowSmoke,
-      setRubble: setShowRubble,
     });
-    return () => { buildingRefs.delete(def.id); };
+    debrisTriggers.set(def.id, (stage, w, h, d) => {
+      if (debrisTriggerRef.current) debrisTriggerRef.current(stage, w, h, d);
+    });
+    return () => {
+      buildingRefs.delete(def.id);
+      debrisTriggers.delete(def.id);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [def.id]);
 
@@ -780,7 +794,11 @@ export function DamageableBuilding({ def }: DamageableBuildingProps) {
         bodyMatRef={bodyMatRef}
       />
       {showSmoke && <SmokeOverlay position={def.position} h={def.h} />}
-      {showRubble && <RubbleOverlay position={def.position} w={def.w} d={def.d} />}
+      <BuildingDebris
+        position={def.position}
+        color={def.color}
+        triggerRef={debrisTriggerRef}
+      />
     </group>
   );
 }
@@ -806,27 +824,93 @@ function SmokeOverlay({ position, h }: { position: [number, number, number]; h: 
   );
 }
 
-// ─── RubbleOverlay ────────────────────────────────────────────────
+// ─── BuildingDebris — pixel chunks that fly out when building is hit ─
 
-function RubbleOverlay({ position, w, d }: { position: [number, number, number]; w: number; d: number }) {
+const DEBRIS_CAP = 48; // max live particles per building
+
+interface DebrisParticle {
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  life: number;
+  maxLife: number;
+}
+
+interface BuildingDebrisProps {
+  position: [number, number, number];
+  color: string;
+  triggerRef: React.MutableRefObject<(stage: number, w: number, h: number, d: number) => void>;
+}
+
+function BuildingDebris({ position, color, triggerRef }: BuildingDebrisProps) {
+  const meshRef    = useRef<THREE.InstancedMesh>(null);
+  const particles  = useRef<DebrisParticle[]>([]);
+  const hasActive  = useRef(false);
+
+  // Set the trigger callback so the parent can call it imperatively
+  triggerRef.current = (stage: number, w: number, h: number, d: number) => {
+    const count = stage === 3 ? 40 : stage === 2 ? 22 : 12;
+    const px = position[0], pz = position[2];
+    for (let i = 0; i < count; i++) {
+      const rx = (Math.random() - 0.5) * w * 1.2;
+      const ry = Math.random() * (stage === 3 ? h : h * 0.6) + 2;
+      const rz = (Math.random() - 0.5) * d * 1.2;
+      const speed  = 18 + Math.random() * (stage === 3 ? 55 : 30);
+      const angle  = Math.random() * Math.PI * 2;
+      const upward = 8 + Math.random() * 28;
+      const life   = 1.4 + Math.random() * 1.0;
+      particles.current.push({
+        pos: new THREE.Vector3(px + rx, ry, pz + rz),
+        vel: new THREE.Vector3(Math.cos(angle) * speed, upward, Math.sin(angle) * speed),
+        life,
+        maxLife: life,
+      });
+    }
+    if (particles.current.length > DEBRIS_CAP) {
+      particles.current = particles.current.slice(-DEBRIS_CAP);
+    }
+    hasActive.current = true;
+  };
+
+  const _mat   = useRef(new THREE.Matrix4());
+  const _scale = useRef(new THREE.Vector3());
+  const _q     = useRef(new THREE.Quaternion());
+
+  useFrame((_, delta) => {
+    if (!hasActive.current) return;
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    const dt = Math.min(delta, 0.05);
+
+    let anyAlive = false;
+    for (let i = 0; i < DEBRIS_CAP; i++) {
+      const p = particles.current[i];
+      if (!p || p.life <= 0) {
+        _mat.current.makeScale(0, 0, 0);
+        mesh.setMatrixAt(i, _mat.current);
+        continue;
+      }
+      p.vel.y -= 55 * dt;
+      p.pos.addScaledVector(p.vel, dt);
+      if (p.pos.y < 0) { p.pos.y = 0; p.vel.y *= -0.25; p.vel.x *= 0.6; p.vel.z *= 0.6; }
+      p.life -= dt;
+      const t = Math.max(0, p.life / p.maxLife);
+      const s = 0.5 + t * 1.0; // big chunks that shrink as they age
+      _scale.current.set(s, s, s);
+      _mat.current.compose(p.pos, _q.current, _scale.current);
+      mesh.setMatrixAt(i, _mat.current);
+      anyAlive = true;
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    hasActive.current = anyAlive;
+  });
+
   return (
-    <group position={[position[0], 0, position[2]]}>
-      <mesh position={[w * 0.28, 0.6, d * 0.18]} rotation={[0.2, 0.5, 0.1]}>
-        <boxGeometry args={[2.2, 1.0, 2.2]} />
-        <meshStandardMaterial color="#2a2520" roughness={1} />
-      </mesh>
-      <mesh position={[-w * 0.22, 0.4, -d * 0.25]} rotation={[-0.15, 1.1, 0.2]}>
-        <boxGeometry args={[1.8, 0.9, 1.8]} />
-        <meshStandardMaterial color="#222018" roughness={1} />
-      </mesh>
-      <mesh position={[0.5, 0.5, d * 0.32]} rotation={[0.1, 0.3, -0.1]}>
-        <boxGeometry args={[2.0, 0.8, 2.0]} />
-        <meshStandardMaterial color="#302820" roughness={1} />
-      </mesh>
-      <mesh position={[-w * 0.1, 0.3, 0.2]} rotation={[0, 1.8, 0]}>
-        <boxGeometry args={[1.4, 0.7, 1.4]} />
-        <meshStandardMaterial color="#252018" roughness={1} />
-      </mesh>
-    </group>
+    <instancedMesh ref={meshRef} args={[undefined, undefined, DEBRIS_CAP]} frustumCulled={false}>
+      <boxGeometry args={[1.6, 1.6, 1.6]} />
+      <meshStandardMaterial color={color} roughness={0.85} />
+    </instancedMesh>
   );
 }
+
+// Module-level map so _applyBuildingVisuals can trigger debris directly
+export const debrisTriggers = new Map<number, (stage: number, w: number, h: number, d: number) => void>();
